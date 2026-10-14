@@ -427,15 +427,15 @@ function extractRotation(A, q, R, iters) {
 // `caustic` how brightly it focuses light into its shadow
 const FLAVORS = [
   { name: 'Cherry',    swatch: '#e2223a', deep: '#8e0718', thick: '#c2001e', haze: 1.0, back: 1.2, edge: 0.25, caustic: 0.8 },
-  { name: 'Orange',    swatch: '#ff8a1f', deep: '#c94a00', thick: '#f47000', haze: 1.0, back: 1.2, edge: 0.25, caustic: 0.8 },
+  { name: 'Orange',    swatch: '#ff8a1f', deep: '#c94a00', thick: '#ff8a00', haze: 1.0, back: 1.2, edge: 0.25, caustic: 0.8 },
   { name: 'Lemon',     swatch: '#ffd83a', deep: '#d79a00', thick: '#fad000', haze: 0.9, back: 1.2, edge: 0.25, caustic: 0.8 },
   { name: 'Apple',     swatch: '#78cd3b', deep: '#2f8a12', thick: '#56b214', haze: 1.0, back: 1.2, edge: 0.25, caustic: 0.8 },
-  { name: 'Pineapple', swatch: '#f4ecd2', deep: '#cdbf96', thick: '#faf6e6', haze: 0.12, back: 0.4, edge: 0.7, caustic: 0.8 },
+  { name: 'Pineapple', swatch: '#f4ecd2', deep: '#cdbf96', thick: '#f5eecf', haze: 0.03, back: 0.4, edge: 0.45, caustic: 0.8, ref: 0.45 },
 ];
 for (const f of FLAVORS) {
   const lin = hexRgb(f.thick).map(srgbToLinear);
   // Beer–Lambert absorption coefficient per world unit of jelly
-  f.sigma = lin.map(c => -Math.log(Math.max(c, 1e-3)) / 0.45);
+  f.sigma = lin.map(c => -Math.log(Math.max(c, 1e-3)) / (f.ref || 0.28));
   // colour of light that made it through ~0.3 units of jelly: tints the shadow
   f.shade = f.sigma.map(s => 0.2 + 0.6 * Math.exp(-s * 0.3));
 }
@@ -476,6 +476,7 @@ for (const s of STRANDS) {
   s.L0 = Math.hypot(B[0] + s.bo[0] - A[0] - s.ao[0], B[1] + s.bo[1] - A[1] - s.ao[1], B[2] + s.bo[2] - A[2] - s.ao[2]);
 }
 /* Tiny moulded details: bumps melted into the surface. */
+const FEATURE_R = 1.45; // dome radius per feature radius (they are shaded, not modelled)
 const FEATURES = [
   { p: HEAD,  o: [-0.080, 0.042, 0.188], r: 0.036, ell: [1.0, 1.1, 0.75] },  // eyes
   { p: HEAD,  o: [0.080, 0.042, 0.188],  r: 0.036, ell: [1.0, 1.1, 0.75] },
@@ -556,7 +557,8 @@ const PIN_W = 3;                // extra weight of a held point in the rigid ref
 const HELD_DAMP = 1.6;          // a held bear's wobble settles a bit faster (it's in your hand)
 const AIR_K = 110, AIR_D = 21;  // self-righting in the air after a hop / rebound (critically damped)
 const HEAD_HOLD = 900;          // neck stiffness keeping a held head turned like the body
-const PRESS_MIN = 0.38;         // deepest pancake (height fraction) when you press a bear down
+const PRESS_MIN = 0.38;
+const GRAB_VMAX = 26;           // fastest a held part follows the cursor (units/s)         // deepest pancake (height fraction) when you press a bear down
 const SLEEP_V2 = 0.07 * 0.07;
 const MAX_BEARS = 30;
 
@@ -585,6 +587,7 @@ class Bear {
     this.x = new Float64Array(N * 3);
     this.v = new Float64Array(N * 3);
     this.px = new Float64Array(N * 3); // positions at the previous sub-step (sleep test)
+    this.frameV2 = Infinity; this.landV = 0;
     this.rg = new Float64Array(N);   // support radius toward the table (orientation + squash aware)
     this.rc = new Float64Array(N);   // contact radius against other bears
     this.contact = new Uint8Array(N);
@@ -708,7 +711,11 @@ class Bear {
     this.dampToRigid(h);
     // flat base keeps the bear sitting; while you press down on it, it keeps it from
     // tipping so the push turns into squash (and sideways bulge) instead
-    if (this.grounded && (gi < 0 || this.target[1] < this.grabY0 - 0.04)) this.flatBase(h);
+    if (this.grounded) {
+      if (gi < 0) { const rec = this.selfRight > 0; this.flatBase(h, rec ? 2.5 : 1, rec ? 0.15 : 0.74); }
+      else if (this.target[1] < this.grabY0 - 0.04 || gi === CHEST || gi === BELLY) this.flatBase(h, 1, 0.74);
+      else if (PARTS[gi].own === 1) this.flatBase(h, 0.55, 0.74); // a hand or a foot: lean, but don't roll over
+    }
     if (gi >= 0) {
       if (this.adh) {
         const k = ADH_K * h;
@@ -725,9 +732,10 @@ class Bear {
       // a pressed bear flattens to a pancake but no further: the held part stops at the
       // pancake's top instead of being driven down through the jelly (which tips it over)
       const ty = this.pressable ? Math.max(this.target[1], this.pressFloor) : this.target[1];
-      V[i3] = (this.target[0] - X[i3]) * f;
-      V[i3 + 1] = (ty - X[i3 + 1]) * f;
-      V[i3 + 2] = (this.target[2] - X[i3 + 2]) * f;
+      let gx = (this.target[0] - X[i3]) * f, gy = (ty - X[i3 + 1]) * f, gz = (this.target[2] - X[i3 + 2]) * f;
+      const gs = Math.sqrt(gx * gx + gy * gy + gz * gz);
+      if (gs > GRAB_VMAX) { const k = GRAB_VMAX / gs; gx *= k; gy *= k; gz *= k; }
+      V[i3] = gx; V[i3 + 1] = gy; V[i3 + 2] = gz;
     } else if (this.selfRight > 0 && !this.grounded) this.airRight(h);
     for (let i = 0; i < 3 * N; i++) X[i] += V[i] * h;
   }
@@ -785,15 +793,15 @@ class Bear {
 
   /* Gummy bears are cast with a flat bottom: while sitting roughly upright on the
    * table they resist rocking over (rolling resistance + a gentle restoring torque). */
-  flatBase(h) {
+  flatBase(h, gain = 1, minUp = 0.74) {
     const R = this.cl[2].R, ux = R[1], uy = R[4], uz = R[7];
-    if (uy < 0.74) return;
+    if (uy < minUp) return;
     const ax = -uz, az = ux, s = Math.hypot(ax, az);
     const X = this.x, V = this.v, c = this.com;
     // horizontal angular velocity of the body (rocking), from the rigid fit in dampToRigid
     const wx = this.wRig[0], wz = this.wRig[2];
-    const ang = Math.atan2(s, uy), k = s > 1e-6 ? FLAT_K * ang / s : 0;
-    const dwx = (ax * k - wx * FLAT_D) * h, dwz = (az * k - wz * FLAT_D) * h;
+    const ang = Math.atan2(s, uy), k = s > 1e-6 ? FLAT_K * gain * ang / s : 0;
+    const dwx = (ax * k - wx * FLAT_D * Math.sqrt(gain)) * h, dwz = (az * k - wz * FLAT_D * Math.sqrt(gain)) * h;
     for (let i = 0; i < N; i++) {
       const i3 = 3 * i, rx = X[i3] - c[0], ry = X[i3 + 1] - c[1], rz = X[i3 + 2] - c[2];
       V[i3] += -dwz * ry; V[i3 + 1] += dwz * rx - dwx * rz; V[i3 + 2] += dwx * ry;
@@ -905,7 +913,7 @@ class Bear {
     // bear's height while it sits up (not while it hangs from your cursor) so it keeps
     // its moulded proportions
     const sagTo = clamp((this.cl[2].R[4] - 0.5) / 0.35, 0, 1) * (this.grab >= 0 && !this.grounded ? 0 : 1) * SAG_STIFF / world.stiffMul;
-    this.sag += (sagTo - this.sag) * Math.min(1, dt * 5);
+    this.sag += (sagTo - this.sag) * (1 - Math.exp(-5 * dt));
     if (this.grab >= 0 || this.despawn >= 0) {
       hop.phase = 'idle'; hop.timer = Math.max(hop.timer, 1.4);
       let c = 1;
@@ -915,7 +923,7 @@ class Bear {
         const ratio = clamp((this.target[1] - this.pressFloor) / Math.max(0.05, this.grabY0 - this.pressFloor), 0, 1);
         c = lerp(PRESS_MIN, 1, ratio);
       }
-      this.pressC = lerp(this.pressC, c, Math.min(1, dt * 20));
+      this.pressC = lerp(this.pressC, c, 1 - Math.exp(-20 * dt));
       this.setPose(this.pressC);
       // despawning: shrink the rest shape along with the radii, so the bear shrinks as a
       // whole instead of thinning into a stick figure with loose blobs
@@ -923,11 +931,11 @@ class Bear {
       reb.armed = false; reb.ready = true;
     } else {
       if (this.pressC < 0.999) { // let go of a press: the jelly springs back almost at once
-        this.pressC = Math.min(1, lerp(this.pressC, 1, Math.min(1, dt * 16)) + 0.8 * dt); this.setPose(this.pressC); this.wake();
+        this.pressC = Math.min(1, lerp(this.pressC, 1, 1 - Math.exp(-16 * dt)) + 0.8 * dt); this.setPose(this.pressC); this.wake();
       }
       if (hop.phase === 'idle') {
         if (world.hops && (this.grounded || this.sleeping) && !reb.armed) {
-          hop.timer -= dt;
+          hop.timer -= this.touch.length >= 2 ? dt * 0.35 : dt;
           if (hop.timer <= 0) {
             if (this.calm()) { hop.phase = 'crouch'; hop.t = 0; this.wake(); } else hop.timer = 0.6;
           }
@@ -951,8 +959,10 @@ class Bear {
       // (it re-arms only once the jelly has recovered, so a bear squeezed in a pile doesn't
       // keep re-arming and never falls asleep)
       if (this.sy > 0.86) reb.ready = true;
-      if (!reb.armed && reb.ready && this.grounded && this.sy < 0.8 && hop.phase === 'idle') {
-        reb.armed = true; reb.ready = false; reb.min = this.sy; reb.start = 1; reb.t = 0; reb.bonus = 0;
+      const landV = this.landV || 0; this.landV = 0;
+      if (!reb.armed && reb.ready && this.grounded && (this.sy < 0.8 || landV > 3.5) && hop.phase === 'idle') {
+        reb.armed = true; reb.ready = false; reb.min = this.sy; reb.start = 1; reb.t = 0;
+        reb.bonus = clamp(0.42 * landV - 0.9, 0, 3.8);
       }
       if (reb.armed) {
         reb.t += dt;
@@ -963,7 +973,7 @@ class Bear {
         if ((dipped && this.sy > reb.min + 0.09 && this.grounded) || reb.t > (this.grounded ? 0.6 : 1.2)) {
           reb.armed = false;
           const vy = Math.min(7.5, (Math.max(0, 0.88 - reb.min) * LAUNCH_GAIN + reb.bonus) * world.bounceMul);
-          if (vy > 1.3 && this.grounded) this.launch(vy, rr(0, 0.25), rand() * TAU, rr(-0.7, 0.7), this.cl[2].R[4] > 0.5);
+          if (vy > 0.9 && this.grounded) this.launch(vy, rr(0, 0.25), rand() * TAU, rr(-0.7, 0.7), this.cl[2].R[4] > 0.5);
         }
       }
     }
@@ -973,8 +983,9 @@ class Bear {
     this.wake();
     this.grab = i;
     this.grabY0 = this.x[3 * i + 1];
+    this.grabUp = this.cl[2].R[4];
     this.target[0] = target[0]; this.target[1] = target[1]; this.target[2] = target[2];
-    this.selfRight = 0;
+    this.selfRight = 0; this.landV = 0;
     // pressing on the head / upper body of a bear sitting on its feet pancakes it
     let low = Infinity;
     for (let j = 0; j < N; j++) low = Math.min(low, this.x[3 * j + 1]);
@@ -1014,6 +1025,8 @@ class Bear {
     // let go gently (a pancake, a stretch, a dangling bear): it lands on its feet.
     // Thrown bears tumble freely.
     this.selfRight = sp < 3 && this.cl[2].R[4] > 0.3 ? 1.2 : 0;
+    // a standing bear you pulled over (by a hand, an ear...) and let go springs back onto its feet
+    if (sp < 3 && this.grabUp > 0.7 && this.cl[2].R[4] < 0.74 && this.grounded) this.launch(2.3 + 1.5 * (0.74 - this.cl[2].R[4]), 0, 0, 0, true);
     this.wake();
   }
 
@@ -1035,6 +1048,10 @@ class Bear {
     const G = this.cl[2], RG = G.R, c = G.c, S = this.S, X = this.x;
     mulT3(RG, this.cl[0].R, _m9a); mul3(_m9a, S, this.rs[0]);
     mulT3(RG, this.cl[1].R, _m9a); mul3(_m9a, S, this.rs[1]);
+    // the rest pose (press pancake, hop crouch/stretch) is a squash too: apply it to the
+    // blobs as well, so a pancake keeps its volume (despawn shrink excluded: scale covers it)
+    const dsc = this.despawn >= 0 ? Math.max(0.05, this.scale) : 1;
+    for (let k = 0; k < 2; k++) for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) this.rs[k][3 * r + c] *= this.pose[c] / dsc;
     for (let i = 0; i < N; i++) {
       const dx = X[3 * i] - c[0], dy = X[3 * i + 1] - c[1], dz = X[3 * i + 2] - c[2];
       sp[3 * i] = RG[0] * dx + RG[3] * dy + RG[6] * dz;
@@ -1067,10 +1084,12 @@ class Bear {
       const p = PARTS[i];
       mz.addEllipsoid(loc[3 * i], loc[3 * i + 1], loc[3 * i + 2], RS[p.own], p.r * p.ell[0] * sc, p.r * p.ell[1] * sc, p.r * p.ell[2] * sc);
     }
-    for (const f of FEATURES) {
-      const M = RS[PARTS[f.p].own], o = f.o;
+    // eyes and nose are drawn as domes in the shader (see gummyCompile), at these spots
+    for (let k = 0; k < FEATURES.length; k++) {
+      const f = FEATURES[k], M = RS[PARTS[f.p].own], o = f.o;
       const ox = (M[0] * o[0] + M[1] * o[1] + M[2] * o[2]) * sc, oy = (M[3] * o[0] + M[4] * o[1] + M[5] * o[2]) * sc, oz = (M[6] * o[0] + M[7] * o[1] + M[8] * o[2]) * sc;
-      mz.addEllipsoid(loc[3 * f.p] + ox, loc[3 * f.p + 1] + oy, loc[3 * f.p + 2] + oz, M, f.r * f.ell[0] * sc, f.r * f.ell[1] * sc, f.r * f.ell[2] * sc);
+      const fn = this.featNext || (this.featNext = new Float32Array(4 * FEATURES.length));
+      fn[4 * k] = loc[3 * f.p] + ox; fn[4 * k + 1] = loc[3 * f.p + 1] + oy; fn[4 * k + 2] = loc[3 * f.p + 2] + oz; fn[4 * k + 3] = f.r * FEATURE_R * sc;
     }
     for (const s of STRANDS) {
       const Ma = RS[PARTS[s.a].own], Mb = RS[PARTS[s.b].own], ao = s.ao, bo = s.bo;
@@ -1082,7 +1101,7 @@ class Bear {
       const bz = loc[3 * s.b + 2] + (Mb[6] * bo[0] + Mb[7] * bo[1] + Mb[8] * bo[2]) * sc;
       const L = Math.sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay) + (bz - az) * (bz - az));
       const thin = clamp(Math.sqrt(s.L0 * sc / Math.max(L, 1e-4)), 0.25, 1.15); // volume-ish: r ∝ 1/√length
-      mz.addCapsule(ax, ay, az, bx, by, bz, Math.max(0.034 * sc, s.ra * thin * sc), Math.max(0.032 * sc, s.rb * thin * sc));
+      mz.addCapsule(ax, ay, az, bx, by, bz, Math.max(0.05 * sc, s.ra * thin * sc), Math.max(0.048 * sc, s.rb * thin * sc));
     }
   }
 }
@@ -1098,6 +1117,7 @@ function physics(dt) {
     world.acc -= H; n++;
   }
   if (n === MAX_SUBSTEPS) world.acc = 0;
+  return n * H; // simulated time: behaviour timers follow the physics, not the wall clock
 }
 
 function substep(h) {
@@ -1118,12 +1138,15 @@ function substep(h) {
     }
     P.set(X);
     if (ground || b.touching) {
-      if (b.airT > 0.12 && b.impact > 1.7 && b.despawn < 0 && world.time > 1.6) world.bounces++;
+      if (b.airT > 0.12 && b.impact > 1.7 && b.despawn < 0) {
+        if (b.intro) b.intro = false; else world.bounces++; // the opening drop doesn't count
+        b.landV = Math.max(b.landV || 0, b.impact); // hard landings bounce back up
+      }
       b.airT = 0;
     } else b.airT += h;
     b.grounded = ground || (b.touching && b.airT === 0 && b.supported);
     b.impact = 0;
-    if (b.grab < 0 && b.hop.phase === 'idle' && !b.reb.armed && b.despawn < 0 && maxV2 < SLEEP_V2 && (ground || b.touching)) {
+    if (b.grab < 0 && b.hop.phase === 'idle' && !b.reb.armed && b.despawn < 0 && (maxV2 < SLEEP_V2 || b.frameV2 < 0.25 * SLEEP_V2) && (ground || b.touching)) {
       b.sleepT += h;
       if (b.sleepT > 0.5) { b.sleeping = true; b.v.fill(0); }
     } else b.sleepT = 0;
@@ -1189,6 +1212,23 @@ function collide(h) {
       contactPair(A, C, h);
     }
   }
+  // contacts with a held (immovable) point can push free points back out through the walls
+  // or into the table: put them back (positions only)
+  for (const b of B) {
+    if (b.sleeping) continue;
+    const X = b.x;
+    for (let i = 0; i < N; i++) {
+      if (i === b.grab) continue;
+      const i3 = 3 * i, rc = b.rc[i];
+      if (X[i3 + 1] < b.rg[i]) X[i3 + 1] = b.rg[i];
+      if (X[i3 + 2] - rc < bd.zBack) X[i3 + 2] = bd.zBack + rc;
+      if (X[i3 + 2] + rc > bd.zFront) X[i3 + 2] = bd.zFront - rc;
+      let d = (X[i3] - (bd.lA + bd.lB * X[i3 + 2])) * lN;
+      if (d < rc) { X[i3] += lN * (rc - d); X[i3 + 2] += -bd.lB * lN * (rc - d); }
+      d = ((bd.rA + bd.rB * X[i3 + 2]) - X[i3]) * rN;
+      if (d < rc) { X[i3] -= rN * (rc - d); X[i3 + 2] += bd.rB * rN * (rc - d); }
+    }
+  }
 }
 
 function contactPair(A, C, h) {
@@ -1206,8 +1246,8 @@ function contactPair(A, C, h) {
       const pen = rs - d;
       let vn = (VA[i3] - VC[j3]) * dx + (VA[i3 + 1] - VC[j3 + 1]) * dy + (VA[i3 + 2] - VC[j3 + 2]) * dz;
       // sleeping bears act as solid ground until something hits them properly
-      if (A.sleeping && (pen > 0.025 || vn < -0.6)) A.wake();
-      if (C.sleeping && (pen > 0.025 || vn < -0.6)) C.wake();
+      if (A.sleeping && (pen > 0.025 || (vn < -0.6 && C.sleepT < 0.1))) A.wake();
+      if (C.sleeping && (pen > 0.025 || (vn < -0.6 && A.sleepT < 0.1))) C.wake();
       const wA = A.sleeping || i === A.grab ? 0 : INV_MASS[i];
       const wC = C.sleeping || j === C.grab ? 0 : INV_MASS[j];
       const W = wA + wC;
@@ -1258,7 +1298,19 @@ function frameUpdate(dt) {
     if (world.time >= s.at) { world.queue.splice(k, 1); s.fn(); }
   }
   for (const b of world.bears) {
-    if (!b.sleeping) b.updateShape();
+    if (!b.sleeping) {
+      b.updateShape();
+      // net speed over the whole frame: a point that jitters within a frame but goes nowhere is at rest
+      const X = b.x, F = b.xf || (b.xf = Float64Array.from(X));
+      let m = 0;
+      for (let i = 0; i < N; i++) {
+        if (i === b.grab) continue;
+        const i3 = 3 * i, d2 = (X[i3] - F[i3]) ** 2 + (X[i3 + 1] - F[i3 + 1]) ** 2 + (X[i3 + 2] - F[i3 + 2]) ** 2;
+        if (d2 > m) m = d2;
+      }
+      b.frameV2 = dt > 0 ? m / (dt * dt) : Infinity;
+      F.set(X);
+    }
     b.updateBehaviour(dt);
   }
   for (let k = world.bears.length - 1; k >= 0; k--) {
@@ -1318,13 +1370,44 @@ class Mesher {
       this.rowHi = new Int32Array(rows);
     }
     if (n <= this.cap) return;
-    this.cap = n;
+    this.cap = Math.max(n, Math.ceil(this.cap * 1.5)); // grow in steps: reallocating is a visible hitch
     this.field = new Float32Array(n);
     this.cGen = new Int32Array(n * 3);
     this.cIdx = new Int32Array(n * 3);
     this.gen = 0;
   }
   begin() { this.ne = 0; this.nc = 0; }
+  /* The primitive list as one flat array (ellipsoids: centre, quadratic form, half extents;
+   * capsules: ends and radii), to hand a mesh job to a worker. */
+  pack() {
+    const a = new Float64Array(this.ne * 12 + this.nc * 8);
+    let o = 0;
+    for (let k = 0; k < this.ne; k++) {
+      const e = this.ells[k];
+      a[o++] = e.cx; a[o++] = e.cy; a[o++] = e.cz;
+      for (let q = 0; q < 6; q++) a[o++] = e.Q[q];
+      a[o++] = e.hx; a[o++] = e.hy; a[o++] = e.hz;
+    }
+    for (let k = 0; k < this.nc; k++) {
+      const c = this.caps[k];
+      a[o++] = c.ax; a[o++] = c.ay; a[o++] = c.az; a[o++] = c.bx; a[o++] = c.by; a[o++] = c.bz; a[o++] = c.ra; a[o++] = c.rb;
+    }
+    return a;
+  }
+  unpack(a, ne, nc) {
+    let o = 0;
+    this.ne = ne; this.nc = nc;
+    for (let k = 0; k < ne; k++) {
+      const e = this.ells[k] || (this.ells[k] = { Q: new Float64Array(6), E: new Float64Array(9) });
+      e.cx = a[o++]; e.cy = a[o++]; e.cz = a[o++];
+      for (let q = 0; q < 6; q++) e.Q[q] = a[o++];
+      e.hx = a[o++]; e.hy = a[o++]; e.hz = a[o++];
+    }
+    for (let k = 0; k < nc; k++) {
+      const c = this.caps[k] || (this.caps[k] = {});
+      c.ax = a[o++]; c.ay = a[o++]; c.az = a[o++]; c.bx = a[o++]; c.by = a[o++]; c.bz = a[o++]; c.ra = a[o++]; c.rb = a[o++];
+    }
+  }
   /* Ellipsoid with matrix M·diag(ex,ey,ez) (M = rotation·squash). Stores the inverse
    * quadratic form so the splat is a handful of multiply-adds per grid point. */
   addEllipsoid(cx, cy, cz, M, ex, ey, ez) {
@@ -1689,9 +1772,15 @@ const tableMat = new THREE.ShaderMaterial({
       float r = length((vWorld.xz - uCenter) * vec2(0.75, 1.0));
       float shade = 1.0 - 0.05 * smoothstep(4.0, 18.0, r);
       vec3 col = vec3(uBase * shade) * sh;
-      if (uUseAbsorb > 0.5) col *= exp(-max(texture2D(uAbsorb, gl_FragCoord.xy / uAbsorbRes).rgb, 0.0));
+      if (uUseAbsorb > 0.5) {
+        vec2 au = gl_FragCoord.xy / uAbsorbRes, px = 1.5 / uAbsorbRes;
+        vec3 tau = 0.4 * texture2D(uAbsorb, au).rgb + 0.15 * (texture2D(uAbsorb, au + vec2(px.x, 0.0)).rgb
+          + texture2D(uAbsorb, au - vec2(px.x, 0.0)).rgb + texture2D(uAbsorb, au + vec2(0.0, px.y)).rgb + texture2D(uAbsorb, au - vec2(0.0, px.y)).rgb);
+        col *= exp(-max(tau, 0.0));
+      }
       gl_FragColor = vec4(col, 1.0);
       #include <colorspace_fragment>
+      gl_FragColor.rgb += (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) / 255.0; // dither
     }`,
   toneMapped: false,
 });
@@ -1737,8 +1826,9 @@ const GUMMY = {
   uBackdropSize: { value: new THREE.Vector2(2, 2) },
   uAbsorb: { value: absorbRT.texture },
   uIor: { value: 1.38 },
-  uThick: { value: 0.3 },
-  uBlur: { value: 0.16 },
+  uThick: { value: 0.6 },
+  uBlur: { value: 0.06 },
+  uFeatK: { value: 1.5 },
   uKeyDir: { value: lightDir(keyLight) }, uKeyCol: { value: lightCol(keyLight) },
   uRimDir: { value: lightDir(rimLight) }, uRimCol: { value: lightCol(rimLight) },
   uAmbCol: { value: new THREE.Color(1.4, 1.4, 1.42) },
@@ -1749,14 +1839,30 @@ const GUMMY = {
 function gummyCompile(shader, own) {
   Object.assign(shader.uniforms, GUMMY, own);
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nvarying vec3 vGWorld;')
-    .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvGWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    .replace('#include <common>', '#include <common>\nvarying vec3 vGWorld, vGLocal;')
+    .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvGWorld = (modelMatrix * vec4(transformed, 1.0)).xyz; vGLocal = transformed;');
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <common>', `#include <common>
-      varying vec3 vGWorld;
-      uniform mat4 projectionMatrix;
+      varying vec3 vGWorld, vGLocal;
+      uniform mat4 projectionMatrix; uniform mat3 normalMatrix;
+      uniform vec4 uFeat[3]; uniform float uFeatK;
       uniform sampler2D uBackdrop, uAbsorb; uniform vec2 uBackdropSize; uniform float uIor, uThick, uBlur;
       uniform vec3 uSigma, uKeyDir, uKeyCol, uRimDir, uRimCol, uAmbCol; uniform float uHaze, uBack, uScat, uEdgeEnv, uEdgeBright, uRimGlow;`)
+    .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
+    {
+      // moulded eyes and nose: small domes bent into the normal, crisper than the
+      // marching-cubes grid could carry them as geometry
+      for (int i = 0; i < 3; i++) {
+        vec3 q = (vGLocal - uFeat[i].xyz) / max(uFeat[i].w, 1e-4);
+        float s = dot(q, q);
+        if (s < 1.0) normal = normalize(normal + uFeatK * (1.0 - s) * (normalMatrix * q));
+      }
+      // at the silhouette, interpolated isosurface normals can face away from the eye and
+      // read as a dark outline: bend them back toward the viewer
+      vec3 gvd = normalize(vViewPosition);
+      normal = normalize(normal + gvd * max(0.0, 0.3 - dot(normal, gvd)));
+      nonPerturbedNormal = normal;
+    }`)
     .replace('#include <transmission_fragment>', `vec3 gT = vec3(0.0);
     {
       vec3 gv = normalize(cameraPosition - vGWorld);
@@ -1807,11 +1913,12 @@ function gummyCompile(shader, own) {
 }
 const gummyMats = FLAVORS.map(f => {
   const m = new THREE.MeshPhysicalMaterial({
-    color: 0xffffff, roughness: 0.22, metalness: 0, ior: 1.38, specularIntensity: 1,
+    color: 0xffffff, roughness: 0.22, metalness: 0, ior: 1.38, specularIntensity: 0.2, // clearcoat makes the highlights
     clearcoat: 1, clearcoatRoughness: 0.035, envMapIntensity: 1.15,
   });
   m.userData.u = { uSigma: { value: new THREE.Vector3().fromArray(f.sigma) }, uHaze: { value: f.haze }, uBack: { value: f.back }, uEdgeEnv: { value: f.edge } };
-  m.onBeforeCompile = shader => gummyCompile(shader, m.userData.u);
+  m.onBeforeCompile = shader => gummyCompile(shader, { ...m.userData.u, uFeat: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] } });
+  m.customProgramCacheKey = () => 'gummy';
   return m;
 });
 
@@ -1829,7 +1936,13 @@ function makeGeometry(capV, capT) {
 
 function attachRender(b) {
   const geo = makeGeometry(9000, 17000);
-  b.mesh = new THREE.Mesh(geo, gummyMats[b.flavor]);
+  // each bear gets its own material instance for its eye / nose uniforms (one shared program)
+  const base = gummyMats[b.flavor];
+  b.feat = [new THREE.Vector4(0, 0, 0, 1e-4), new THREE.Vector4(0, 0, 0, 1e-4), new THREE.Vector4(0, 0, 0, 1e-4)];
+  b.mat = base.clone();
+  b.mat.onBeforeCompile = shader => gummyCompile(shader, { ...base.userData.u, uFeat: { value: b.feat } });
+  b.mat.customProgramCacheKey = () => 'gummy';
+  b.mesh = new THREE.Mesh(geo, b.mat);
   b.mesh.frustumCulled = false;
   b.absorbMat = absorbBase.clone();
   b.absorbMat.uniforms.uSigma.value.fromArray(FLAVORS[b.flavor].sigma);
@@ -1846,28 +1959,107 @@ function attachRender(b) {
   b.meshStats = { nv: 0, ni: 0 };
 }
 
+function growGeometry(b, nv, ni) {
+  const g = b.mesh.geometry;
+  if (nv <= g.userData.capV && ni <= g.userData.capT * 3) return g;
+  const ng = makeGeometry(Math.ceil(Math.max(nv, g.userData.capV) * 1.6), Math.ceil(Math.max(ni / 3, g.userData.capT) * 1.6));
+  b.mesh.geometry = ng; b.proxy.geometry = ng; b.caster.geometry = ng;
+  g.dispose();
+  return ng;
+}
+function meshUploaded(b, g, nv, ni, sp, feat) {
+  const P = g.attributes.position, Nn = g.attributes.normal, I = g.index;
+  if (ni > 0) { // (a zero-length range would make WebGL upload the whole buffer)
+    P.clearUpdateRanges(); P.addUpdateRange(0, nv * 3); P.needsUpdate = true;
+    Nn.clearUpdateRanges(); Nn.addUpdateRange(0, nv * 3); Nn.needsUpdate = true;
+    I.clearUpdateRanges(); I.addUpdateRange(0, ni); I.needsUpdate = true;
+  }
+  g.setDrawRange(0, ni);
+  b.meshStats.nv = nv; b.meshStats.ni = ni;
+  for (let k = 0; k < b.feat.length; k++) b.feat[k].fromArray(feat, 4 * k);
+  b.meshSp.set(sp);
+  b.meshed = true;
+  b.lastMeshT = world.time;
+}
 function remesh(b) {
   b.gather(mesher);
   for (;;) {
-    const g = b.mesh.geometry, P = g.attributes.position, Nn = g.attributes.normal, I = g.index;
-    const res = mesher.polygonize(P.array, Nn.array, I.array, g.userData.capV, g.userData.capT * 3);
-    if (res) {
-      if (res.ni > 0) { // (a zero-length range would make WebGL upload the whole buffer)
-        P.clearUpdateRanges(); P.addUpdateRange(0, res.nv * 3); P.needsUpdate = true;
-        Nn.clearUpdateRanges(); Nn.addUpdateRange(0, res.nv * 3); Nn.needsUpdate = true;
-        I.clearUpdateRanges(); I.addUpdateRange(0, res.ni); I.needsUpdate = true;
-      }
-      g.setDrawRange(0, res.ni);
-      b.meshStats.nv = res.nv; b.meshStats.ni = res.ni;
-      break;
-    }
-    const ng = makeGeometry(Math.ceil(g.userData.capV * 1.6), Math.ceil(g.userData.capT * 1.6));
-    b.mesh.geometry = ng; b.proxy.geometry = ng; b.caster.geometry = ng;
-    g.dispose();
+    const g = b.mesh.geometry;
+    const res = mesher.polygonize(g.attributes.position.array, g.attributes.normal.array, g.index.array, g.userData.capV, g.userData.capT * 3);
+    if (res) { meshUploaded(b, g, res.nv, res.ni, b.sp, b.featNext); break; }
+    growGeometry(b, g.userData.capV + 1, 0);
   }
-  b.meshSp.set(b.sp);
-  b.meshed = true;
-  b.lastMeshT = world.time;
+}
+
+/* --- Mesh workers: marching cubes is a pure function of a bear's primitive list, so the
+ * bears that are merely jiggling are meshed off the main thread (the one you hold is
+ * meshed right here, every frame). Without workers everything is meshed on the main thread. */
+const meshPool = [];
+let meshJobId = 0;
+const meshJobs = new Map();
+function startMeshWorkers() {
+  if (typeof Worker === 'undefined' || QS.has('noworkers')) return;
+  const src = `
+    const ISO = ${ISO}, KR = ${KR}, KR2 = ${KR2}, CELL = ${CELL}, MAX_POINTS = ${MAX_POINTS};
+    const E_DX = ${JSON.stringify(E_DX)}, E_DY = ${JSON.stringify(E_DY)}, E_DZ = ${JSON.stringify(E_DZ)}, E_AX = ${JSON.stringify(E_AX)};
+    const TRI_OFF = new Int32Array(${JSON.stringify(Array.from(TRI_OFF))});
+    const TRI_DATA = new Int8Array(${JSON.stringify(Array.from(TRI_DATA))});
+    const _m9b = new Float64Array(9), _m9c = new Float64Array(9);
+    ${inv3.toString()}
+    ${Mesher.toString()}
+    const mz = new Mesher();
+    let pos = new Float32Array(9000 * 3), nrm = new Float32Array(9000 * 3), idx = new Uint32Array(17000 * 3);
+    onmessage = e => {
+      const { id, prims, ne, nc } = e.data;
+      mz.unpack(prims, ne, nc);
+      let r;
+      while (!(r = mz.polygonize(pos, nrm, idx, pos.length / 3, idx.length))) {
+        pos = new Float32Array(pos.length * 2); nrm = new Float32Array(nrm.length * 2); idx = new Uint32Array(idx.length * 2);
+      }
+      const P = pos.slice(0, r.nv * 3), Nn = nrm.slice(0, r.nv * 3), I = idx.slice(0, r.ni);
+      postMessage({ id, nv: r.nv, ni: r.ni, P, Nn, I }, [P.buffer, Nn.buffer, I.buffer]);
+    };`;
+  try {
+    const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+    const n = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 3);
+    for (let k = 0; k < n; k++) {
+      const w = new Worker(url);
+      w.busy = 0;
+      w.onmessage = e => meshJobDone(w, e.data);
+      w.onerror = () => stopMeshWorkers();
+      meshPool.push(w);
+    }
+  } catch (err) { stopMeshWorkers(); }
+}
+function stopMeshWorkers() {
+  for (const w of meshPool) w.terminate();
+  meshPool.length = 0;
+  for (const job of meshJobs.values()) job.bear.job = null;
+  meshJobs.clear();
+}
+function postMeshJob(b) {
+  let w = null;
+  for (const c of meshPool) if (c.busy < 4 && (!w || c.busy < w.busy)) w = c;
+  if (!w) return false;
+  b.gather(mesher);
+  const id = ++meshJobId, prims = mesher.pack();
+  meshJobs.set(id, { bear: b, sp: Float64Array.from(b.sp), feat: Float32Array.from(b.featNext), t0: performance.now() });
+  b.job = id; w.busy++;
+  w.postMessage({ id, prims, ne: mesher.ne, nc: mesher.nc }, [prims.buffer]);
+  return true;
+}
+function meshJobDone(w, r) {
+  w.busy = Math.max(0, w.busy - 1);
+  const job = meshJobs.get(r.id);
+  meshJobs.delete(r.id);
+  if (!job) return;
+  timings.jobMs = (timings.jobMs || 0) * 0.9 + (performance.now() - job.t0) * 0.1; // round trip
+  const b = job.bear;
+  if (b.job === r.id) b.job = null;
+  if (b.removed || b.grab >= 0) return; // gone, or picked up meanwhile (meshed live now)
+  const g = growGeometry(b, r.nv, r.ni);
+  g.attributes.position.array.set(r.P); g.attributes.normal.array.set(r.Nn); g.index.array.set(r.I);
+  meshUploaded(b, g, r.nv, r.ni, job.sp, job.feat);
 }
 
 function removeBear(b) {
@@ -1878,6 +2070,7 @@ function removeBear(b) {
   absorbScene.remove(b.proxy);
   shadowScene.remove(b.caster);
   b.mesh.geometry.dispose();
+  b.mat.dispose();
   b.absorbMat.dispose();
   b.casterMat.dispose();
   if (world.focus === b) world.focus = null;
@@ -2054,6 +2247,13 @@ function layout() {
   tableMat.uniforms.uCenter.value.set(bd.cx, bd.cz);
   // nudge anything now outside back in
   for (const b of world.bears) b.wake();
+  // reframed mid-drag (resize, rotation): rebuild the drag plane under the pointer so the
+  // bear stays under it, and forget the old samples so the jump doesn't read as a flick
+  if (drag) {
+    dragPlaneFor(drag.bear, drag.target, drag.plane);
+    drag.offset.set(0, 0, 0); drag.hist.length = 0;
+    moveDrag(pointer.x, pointer.y);
+  }
 }
 
 /* =====================================================================
@@ -2131,7 +2331,7 @@ function initialBears() {
   const bd = world.bounds, n = FLAVORS.length;
   const z = clamp(bd.cz + (world.lineup ? 0.15 : 0.3), bd.zBack + 0.8, bd.zFront - 0.8), pad = world.lineup ? 0.8 : 0.55;
   const xl = bd.lA + bd.lB * z + pad, xr = bd.rA + bd.rB * z - pad, mid = (xl + xr) / 2;
-  const place = (k, x, zz) => spawnBear(k, [x, REST_COM[1] + 0.35 + 0.1 * k, zz], yawQuat(rr(-0.35, 0.35) - (x - bd.cx) * 0.06));
+  const place = (k, x, zz) => { spawnBear(k, [x, REST_COM[1] + 0.35 + 0.1 * k, zz], yawQuat(rr(-0.35, 0.35) - (x - bd.cx) * 0.06)).intro = true; };
   if (world.lineup) {
     // a line-up, gently staggered in depth
     const span = Math.min(xr - xl, 5.2), x0 = mid - span / 2;
@@ -2153,9 +2353,10 @@ function initialBears() {
 const cursorEl = document.getElementById('cursor');
 let drag = null;
 let pointer = { x: -100, y: -100, inside: false, fine: matchMedia('(pointer: fine)').matches };
+let hoverDirty = false, hoverTick = 0;
 if (!pointer.fine) document.body.classList.add('no-fine-pointer');
 
-const PICK_R = PARTS.map(p => p.r * Math.max(p.ell[0], p.ell[1], p.ell[2]) * 1.12);
+const PICK_R = PARTS.map((p, i) => i === SNOUT ? p.r * Math.min(p.ell[0], p.ell[1], p.ell[2]) : p.r * Math.max(p.ell[0], p.ell[1], p.ell[2]) * 1.12);
 const PICK_PAD = PARTS.map(p => (p.pick - 1) * 0.04);
 const pickHit = { b: null, part: -1, t: Infinity };
 // distance along the (unit) ray to a sphere, or -1 if it misses
@@ -2195,18 +2396,25 @@ function pick(px, py) {
   return pickHit;
 }
 
-function beginDrag(b, part, px, py) {
+/* The drag plane faces the camera; for a bear that can be pressed (head / upper body of
+ * a sitting bear) it is vertical, so moving the pointer down pushes straight down instead
+ * of down-and-toward-you (which tips the bear over instead of squashing it). */
+function dragPlaneFor(b, p, plane) {
+  const n = new THREE.Vector3(); camera.getWorldDirection(n).negate();
+  if (b.pressable) { n.y = 0; n.normalize(); }
+  return plane.setFromNormalAndCoplanarPoint(n, p);
+}
+function beginDrag(b, part, px, py, ts) {
   const X = b.x, i3 = 3 * part;
   const p = new THREE.Vector3(X[i3], X[i3 + 1], X[i3 + 2]);
-  const n = new THREE.Vector3(); camera.getWorldDirection(n).negate();
-  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, p);
+  b.startGrab(part, [p.x, p.y, p.z]);
+  const plane = dragPlaneFor(b, p, new THREE.Plane());
   _ndc.set(px / innerWidth * 2 - 1, -(py / innerHeight) * 2 + 1);
   _ray.setFromCamera(_ndc, camera);
   const hit = _ray.ray.intersectPlane(plane, new THREE.Vector3()) || p.clone();
   drag = { bear: b, part, plane, offset: p.clone().sub(hit), hist: [], target: p.clone() };
-  b.startGrab(part, [p.x, p.y, p.z]);
   world.focus = b; world.focusPart = part;
-  recordDrag(p);
+  recordDrag(p, ts);
 }
 function clampTarget(b, part, v) {
   const bd = world.bounds, rc = b.rc[part];
@@ -2217,13 +2425,12 @@ function clampTarget(b, part, v) {
   v.y = Math.min(v.y, 7);
   return v;
 }
-function recordDrag(p) {
-  const now = performance.now();
+function recordDrag(p, now = performance.now()) {
   drag.hist.push({ t: now, x: p.x, y: p.y, z: p.z });
   while (drag.hist.length > 2 && now - drag.hist[0].t > 110) drag.hist.shift();
 }
 const _dragHit = new THREE.Vector3();
-function moveDrag(px, py) {
+function moveDrag(px, py, ts) {
   _ndc.set(px / innerWidth * 2 - 1, -(py / innerHeight) * 2 + 1);
   _ray.setFromCamera(_ndc, camera);
   const hit = _ray.ray.intersectPlane(drag.plane, _dragHit);
@@ -2231,14 +2438,15 @@ function moveDrag(px, py) {
   const t = clampTarget(drag.bear, drag.part, hit.add(drag.offset));
   drag.target.copy(t);
   drag.bear.target[0] = t.x; drag.bear.target[1] = t.y; drag.bear.target[2] = t.z;
-  recordDrag(t);
+  recordDrag(t, ts);
 }
-function endDrag(throwIt = true) {
+/* Throw velocity from the pointer's own timestamps (event time, not handling time), so a
+ * quick flick still throws when the page is busy and the moves arrive coalesced. */
+function endDrag(throwIt = true, now = performance.now()) {
   if (!drag) return;
   const b = drag.bear;
   let vel = [0, 0, 0];
   if (throwIt && drag.hist.length >= 2) {
-    const now = performance.now();
     const h = drag.hist.filter(e => now - e.t < 110);
     if (h.length >= 2) {
       const a = h[0], z = h[h.length - 1], dt = Math.max(0.016, (z.t - a.t) / 1000);
@@ -2248,6 +2456,7 @@ function endDrag(throwIt = true) {
   b.release(vel);
   drag = null;
   cursorEl.classList.remove('grab');
+  hoverDirty = true;
 }
 
 canvas.addEventListener('pointerdown', e => {
@@ -2256,26 +2465,30 @@ canvas.addEventListener('pointerdown', e => {
   const hit = pick(e.clientX, e.clientY);
   if (!hit) return;
   try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
-  beginDrag(hit.b, hit.part, e.clientX, e.clientY);
+  beginDrag(hit.b, hit.part, e.clientX, e.clientY, e.timeStamp);
   drag.pointerId = e.pointerId;
-  cursorEl.classList.add('grab');
+  if (e.pointerType !== 'touch') cursorEl.classList.add('grab');
 });
-let hoverDirty = false;
 canvas.addEventListener('pointermove', e => {
   pointer.x = e.clientX; pointer.y = e.clientY; pointer.inside = true;
   if (e.pointerType !== 'touch') {
     cursorEl.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0)`;
     cursorEl.classList.add('on');
   }
-  if (drag) { if (e.pointerId === drag.pointerId) moveDrag(e.clientX, e.clientY); }
+  if (drag) {
+    if (e.pointerId !== drag.pointerId) return;
+    const co = e.getCoalescedEvents ? e.getCoalescedEvents() : null;
+    if (co && co.length) for (const c of co) moveDrag(c.clientX, c.clientY, c.timeStamp);
+    else moveDrag(e.clientX, e.clientY, e.timeStamp);
+  }
   else if (e.pointerType !== 'touch') hoverDirty = true; // hover test runs once per frame
 });
 // only the pointer that grabbed the bear can let go of it (a second finger lifting does not)
-const finish = e => { if (drag && e.pointerId === drag.pointerId) endDrag(e.type === 'pointerup'); };
+const finish = e => { if (drag && e.pointerId === drag.pointerId) endDrag(e.type === 'pointerup', e.timeStamp); };
 canvas.addEventListener('pointerup', finish);
 canvas.addEventListener('pointercancel', finish);
 canvas.addEventListener('lostpointercapture', finish);
-canvas.addEventListener('pointerleave', () => { hoverDirty = false; if (!drag) cursorEl.classList.remove('on', 'hover'); });
+canvas.addEventListener('pointerleave', () => { hoverDirty = false; pointer.inside = false; if (!drag) cursorEl.classList.remove('on', 'hover'); });
 window.addEventListener('blur', () => endDrag(false));
 document.addEventListener('visibilitychange', () => { if (document.hidden) endDrag(false); });
 
@@ -2348,21 +2561,28 @@ function remeshAll(budget = meshBudget) {
       b.shapeParams();
       const d = b.shapeDelta();
       // a bear that has gone to sleep gets one exact final mesh, so still piles look exactly right
-      if (d < (b.sleeping ? 1e-7 : MESH_EPS)) { b.meshFinal = b.sleeping; kept++; continue; }
+      if (d < (b.sleeping ? 1e-7 : (b.grab >= 0 ? MESH_EPS : MESH_EPS * 1.5))) { b.meshFinal = b.sleeping; kept++; continue; }
       b.meshPri = b.grab >= 0 ? 1e9 : (b.sleeping ? MESH_EPS : d) * (1 + 8 * (world.time - b.lastMeshT));
     } else b.meshPri = 2e9;
     meshQueue.push(b);
   }
   if (meshQueue.length > 1) meshQueue.sort(byMeshPriority);
-  let n = 0;
+  let n = 0, posted = 0;
+  const async = meshPool.length > 0 && budget !== Infinity;
   for (let k = 0; k < meshQueue.length; k++) {
     const b = meshQueue[k];
+    if (async && b.meshed && b.grab < 0) {
+      if (b.job) continue;              // already being meshed
+      if (postMeshJob(b)) posted++;
+      continue;
+    }
     const t1 = performance.now();
-    if (b.meshed && n >= 3 && t1 - t0 + meshCost > budget) break;
+    if (b.meshed && n >= (async ? 1 : 3) && t1 - t0 + meshCost > budget) break;
     remesh(b); n++;
     b.meshFinal = b.sleeping;
     meshCost += (Math.min(4, performance.now() - t1) - meshCost) * 0.1;
   }
+  timings.meshPosted = posted;
   meshQueue.length = 0;
   timings.meshed = n; timings.meshKept = kept; timings.meshBudget = meshBudget;
   return performance.now() - t0;
@@ -2370,8 +2590,8 @@ function remeshAll(budget = meshBudget) {
 const ease = (a, b) => a + (b - a) * 0.1;
 function advance(dt) {
   const t0 = performance.now();
-  physics(dt);
-  frameUpdate(dt);
+  const sdt = physics(dt);
+  frameUpdate(sdt);
   timings.physics = ease(timings.physics, performance.now() - t0);
 }
 function draw(dt, full = false) {
@@ -2383,6 +2603,8 @@ function draw(dt, full = false) {
 }
 
 let manual = QS.has('manual');
+const frameMs = new Float64Array(60).fill(1000 / 60);
+let frameK = 0, vsyncMs = 1000 / 60;
 let last = performance.now();
 function tick(now) {
   requestAnimationFrame(tick);
@@ -2390,13 +2612,16 @@ function tick(now) {
   const dt = Math.min(0.05, Math.max(0, ms / 1000));
   last = now;
   if (dt > 0) timings.fps = ease(timings.fps, 1 / dt);
-  if (hoverDirty) { hoverDirty = false; if (!drag) cursorEl.classList.toggle('hover', !!pick(pointer.x, pointer.y)); }
+  if (!drag && pointer.inside && (hoverDirty || ++hoverTick % 6 === 0)) { hoverDirty = false; cursorEl.classList.toggle('hover', !!pick(pointer.x, pointer.y)); }
   // the window moved to a screen with another pixel ratio (this does not always fire 'resize')
   if (Math.min(window.devicePixelRatio || 1, 2) !== renderer.getPixelRatio()) layout();
   if (manual) return;
   // late frames shrink the remesh budget quickly, on-time frames grow it back slowly
-  if (ms > 18.5 && ms < 1000) meshBudget = Math.max(MESH_BUDGET_MIN, meshBudget - 0.25);
-  else if (ms > 0 && ms < 17.5) meshBudget = Math.min(MESH_BUDGET_MAX, meshBudget + 0.05);
+  // (measured against the display's own frame interval, so 120/144 Hz screens pace evenly)
+  if (ms > 0 && ms < 100) { frameMs[frameK++ % frameMs.length] = ms; if (frameK % 30 === 0) vsyncMs = [...frameMs].sort((a, b) => a - b)[12]; }
+  const cap = Math.min(MESH_BUDGET_MAX, 0.45 * vsyncMs);
+  if (ms > 1.15 * vsyncMs && ms < 1000) meshBudget = Math.max(Math.min(MESH_BUDGET_MIN, cap), meshBudget - 0.25);
+  else if (ms > 0 && ms < 1.05 * vsyncMs) meshBudget = Math.min(cap, meshBudget + 0.05);
   const t0 = performance.now();
   advance(dt);
   draw(dt);
@@ -2413,6 +2638,7 @@ canvas.addEventListener('webglcontextrestored', () => {
 layout();
 initialBears();
 draw(0, true);
+startMeshWorkers();
 document.body.classList.add('ready');
 requestAnimationFrame(tick);
 
