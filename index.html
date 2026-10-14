@@ -1,0 +1,1911 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Gummy Bears</title>
+<meta name="description" content="Translucent jelly gummy bears on a white table. Grab, stretch, squash, throw and pour them." />
+<meta name="theme-color" content="#f4f3f1" />
+<style>
+  :root {
+    --ink: #141313;
+    --ink-2: #3b3936;
+    --muted: #8a8681;
+    --line: rgba(20, 19, 19, 0.09);
+    --paper: #f4f3f1;
+    --serif: "Didot", "Bodoni 72", "Bodoni MT", "Playfair Display", "Iowan Old Style", "Palatino Linotype", Palatino, ui-serif, Georgia, "Times New Roman", serif;
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Inter, "Segoe UI", Roboto, Arial, sans-serif;
+    --ease-jelly: cubic-bezier(.3, 1.6, .45, 1);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: var(--paper); color: var(--ink);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #scene {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    display: block; touch-action: none; cursor: none; outline: none;
+  }
+  body.no-fine-pointer #scene { cursor: default; }
+
+  /* ---------- masthead ---------- */
+  .mast {
+    position: fixed; z-index: 2;
+    left: clamp(20px, 4.2vw, 72px); top: clamp(18px, 4.6vh, 56px);
+    pointer-events: none;
+  }
+  .eyebrow {
+    display: flex; align-items: center; gap: 14px;
+    font: 600 10.5px/1 var(--sans); letter-spacing: .2em; text-transform: uppercase; color: var(--muted);
+  }
+  .eyebrow .rule { width: 44px; height: 1px; background: currentColor; opacity: .6; }
+  .title {
+    margin: clamp(10px, 2vh, 22px) 0 0;
+    font-family: var(--serif); font-style: italic; font-weight: 400;
+    font-size: clamp(64px, 11.2vw, 196px); line-height: .82; letter-spacing: -.035em;
+    color: var(--ink);
+  }
+  .title span { display: block; }
+  .title span + span { padding-left: .5em; }
+  .sub {
+    margin: clamp(16px, 2.6vh, 28px) 0 0 .2em; max-width: 31ch;
+    font: 400 15px/1.55 var(--sans); color: var(--ink-2);
+  }
+
+  /* ---------- product card ---------- */
+  .card {
+    position: fixed; z-index: 3;
+    right: clamp(16px, 3vw, 52px); top: 50%; transform: translateY(-50%);
+    width: 296px; padding: 20px 20px 18px;
+    background: rgba(255, 255, 255, .74);
+    -webkit-backdrop-filter: blur(22px) saturate(150%); backdrop-filter: blur(22px) saturate(150%);
+    border: 1px solid var(--line); border-radius: 22px;
+    box-shadow: 0 1px 0 rgba(255,255,255,.9) inset, 0 30px 70px -36px rgba(40, 28, 16, .32), 0 2px 8px rgba(0,0,0,.035);
+    cursor: default;
+  }
+  .row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .label { font: 600 10.5px/1 var(--sans); letter-spacing: .17em; text-transform: uppercase; color: var(--muted); }
+  .meta { font: italic 400 15px/1 var(--serif); color: var(--ink-2); }
+  .sep { height: 1px; background: var(--line); margin: 16px 0; }
+
+  .swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin: 16px -4px 0; }
+  .sw {
+    appearance: none; -webkit-appearance: none; border: 0; background: none; padding: 6px 0 4px; margin: 0;
+    display: flex; flex-direction: column; align-items: center; gap: 9px;
+    font: 500 10.5px/1 var(--sans); letter-spacing: .01em; color: var(--ink-2); cursor: pointer;
+    border-radius: 12px;
+  }
+  .sw i {
+    display: block; width: 34px; height: 34px; border-radius: 50%;
+    background:
+      radial-gradient(circle at 33% 28%, rgba(255,255,255,.95) 0 7%, rgba(255,255,255,0) 24%),
+      radial-gradient(circle at 62% 72%, rgba(255,255,255,.35) 0, rgba(255,255,255,0) 38%),
+      radial-gradient(circle at 50% 55%, var(--c) 0 45%, var(--d) 100%);
+    box-shadow: inset 0 -4px 7px rgba(0,0,0,.14), inset 0 2px 3px rgba(255,255,255,.55), 0 7px 14px -8px var(--d);
+    transition: transform .45s var(--ease-jelly);
+  }
+  .sw:hover i { transform: translateY(-3px) scale(1.07, 1.1); }
+  .sw:active i { transform: scale(1.18, .78); transition-duration: .08s; }
+  .sw:focus-visible, .pour:focus-visible, input[type=range]:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+
+  .wobble-head output { font: italic 400 16px/1 var(--serif); color: var(--ink); font-variant-numeric: tabular-nums; }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; display: block;
+    width: 100%; height: 26px; margin: 10px 0 2px; background: transparent; cursor: pointer;
+    --p: 60%;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height: 2px; border-radius: 2px;
+    background: linear-gradient(to right, var(--ink) var(--p), rgba(20,19,19,.14) var(--p));
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px; margin-top: -8px; border-radius: 50%;
+    background: #fff; border: 1.5px solid var(--ink); box-shadow: 0 3px 8px rgba(0,0,0,.14);
+    transition: transform .3s var(--ease-jelly);
+  }
+  input[type=range]:active::-webkit-slider-thumb { transform: scale(1.25, .85); }
+  input[type=range]::-moz-range-track { height: 2px; background: rgba(20,19,19,.14); border-radius: 2px; }
+  input[type=range]::-moz-range-progress { height: 2px; background: var(--ink); border-radius: 2px; }
+  input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 1.5px solid var(--ink); }
+  .scale { display: flex; justify-content: space-between; font: 400 11px/1 var(--sans); color: var(--muted); }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; }
+  .stat { padding: 2px 0 0; min-width: 0; }
+  .stat + .stat { padding-left: 18px; border-left: 1px solid var(--line); }
+  .stat b {
+    display: block; margin-top: 12px;
+    font-family: var(--serif); font-style: italic; font-weight: 400;
+    font-size: 46px; line-height: .9; letter-spacing: -.03em; color: var(--ink);
+    font-variant-numeric: tabular-nums lining-nums; white-space: nowrap;
+  }
+  .stat b small { font-size: .5em; letter-spacing: 0; margin-left: 2px; }
+
+  .pour {
+    appearance: none; -webkit-appearance: none; margin: 18px 0 0; width: 100%;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 15px 18px 15px 20px; border: 0; border-radius: 999px;
+    background: var(--ink); color: #fff; cursor: pointer;
+    font: 500 14px/1 var(--sans); letter-spacing: .005em;
+    transition: transform .4s var(--ease-jelly), background .2s;
+  }
+  .pour:hover { background: #000; transform: translateY(-1px); }
+  .pour:active { transform: scale(.97, .93); transition-duration: .08s; }
+  .pour svg { width: 18px; height: 18px; flex: none; }
+  .fine { margin: 12px 0 0; font: 400 11px/1.45 var(--sans); color: var(--muted); text-align: center; }
+
+  /* ---------- footer ---------- */
+  .foot {
+    position: fixed; z-index: 2; left: clamp(20px, 4.2vw, 72px); bottom: clamp(16px, 3.6vh, 36px);
+    display: flex; gap: 22px; align-items: baseline; pointer-events: none;
+    font: 400 11.5px/1.3 var(--sans); color: var(--muted);
+  }
+  .foot em { font: italic 400 14px/1 var(--serif); color: var(--ink-2); }
+
+  /* ---------- cursor ---------- */
+  .cursor {
+    position: fixed; left: 0; top: 0; z-index: 10; width: 0; height: 0;
+    pointer-events: none; opacity: 0; transition: opacity .25s;
+  }
+  .cursor.on { opacity: 1; }
+  .cursor i {
+    position: absolute; left: -24px; top: -24px; width: 48px; height: 48px; border-radius: 50%;
+    border: 1.5px solid rgba(20,19,19,.62);
+    transform: scale(.42);
+    transition: transform .45s var(--ease-jelly), background-color .3s, border-color .3s;
+  }
+  .cursor b {
+    position: absolute; left: -2px; top: -2px; width: 4px; height: 4px; border-radius: 50%;
+    background: rgba(20,19,19,.8); transition: transform .3s;
+  }
+  .cursor.hover i { transform: scale(.66); border-color: rgba(20,19,19,.75); }
+  .cursor.grab i { transform: scale(1.18); background-color: rgba(20,19,19,.05); border-color: rgba(20,19,19,.42); }
+  .cursor.grab b { transform: scale(.5); }
+
+  .loading {
+    position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 1;
+    font: italic 400 20px/1 var(--serif); color: var(--muted); transition: opacity .6s;
+  }
+  body.ready .loading { opacity: 0; }
+
+  @media (max-width: 760px) {
+    .title { font-size: clamp(54px, 17vw, 112px); }
+    .sub { font-size: 13.5px; max-width: 28ch; }
+    .card {
+      top: auto; bottom: max(12px, env(safe-area-inset-bottom)); left: 12px; right: 12px; transform: none;
+      width: auto; padding: 14px 16px 14px; border-radius: 20px;
+    }
+    .card .sep { margin: 10px 0; }
+    .swatches { margin-top: 10px; }
+    .sw i { width: 28px; height: 28px; }
+    .stat b { font-size: 34px; margin-top: 8px; }
+    .pour { margin-top: 12px; padding: 13px 16px 13px 18px; }
+    .fine, .foot { display: none; }
+  }
+  @media (max-width: 760px) and (max-height: 760px) {
+    .card .wobble-block { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sw i, .pour, .cursor i { transition: none; }
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.182.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.182.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="scene" aria-label="Interactive scene: translucent gummy bears on a white table. Drag a bear to stretch it, press down to squash it, flick to throw it."></canvas>
+
+<div class="loading" aria-hidden="true">Setting the jelly…</div>
+
+<header class="mast">
+  <div class="eyebrow"><span>Nº 05</span><span class="rule"></span><span>Fruit gums · Soft goods</span></div>
+  <h1 class="title"><span>Gummy</span><span>Bears.</span></h1>
+  <p class="sub">Five fruit gums, cast in starch and left to set overnight. Pull one, press one, throw one &mdash; every bear springs right back.</p>
+</header>
+
+<aside class="card" id="card" aria-label="Controls">
+  <div class="row"><span class="label">Assortment</span><span class="meta">five flavours</span></div>
+  <div class="swatches" id="swatches" role="group" aria-label="Flavours. Click one to drop a bear of that flavour."></div>
+  <div class="sep"></div>
+  <div class="wobble-block">
+    <label class="row wobble-head" for="wobble"><span class="label">Wobble</span><output id="wobbleOut" for="wobble">Jiggly</output></label>
+    <input id="wobble" type="range" min="0" max="100" step="1" value="62" aria-describedby="wobbleScale" />
+    <div class="scale" id="wobbleScale"><span>Firm</span><span>Molten</span></div>
+    <div class="sep"></div>
+  </div>
+  <div class="stats">
+    <div class="stat"><span class="label">Stretch</span><b id="stretch">100<small>%</small></b></div>
+    <div class="stat"><span class="label">Bounces</span><b id="bounces">0</b></div>
+  </div>
+  <button class="pour" id="pour" type="button">
+    <span>Pour more bears</span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v15M5.5 12.5 12 19l6.5-6.5"/></svg>
+  </button>
+  <p class="fine">Drag to stretch &middot; press down to squash &middot; flick to throw</p>
+</aside>
+
+<footer class="foot"><em>Fig. 1</em><span>Assorted jelly bears, shown actual squish.</span></footer>
+
+<div class="cursor" id="cursor" aria-hidden="true"><i></i><b></b></div>
+
+<noscript><p style="position:fixed;inset:auto 0 40% 0;text-align:center;font-family:Georgia,serif;font-style:italic">The bears need JavaScript to wobble.</p></noscript>
+
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+/* =====================================================================
+ *  Helpers
+ * ===================================================================== */
+const QS = new URLSearchParams(location.search);
+let seedState = (Number(QS.get('seed')) || Math.floor(Math.random() * 2147483647)) >>> 0;
+function rand() { // mulberry32 – seedable so the test harness can reproduce runs
+  seedState = (seedState + 0x6D2B79F5) | 0;
+  let t = Math.imul(seedState ^ (seedState >>> 15), 1 | seedState);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+const rr = (a, b) => a + (b - a) * rand();
+const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = t => t * t * (3 - 2 * t);
+const TAU = Math.PI * 2;
+const srgbToLinear = c => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+const hexRgb = hex => { const n = parseInt(hex.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; };
+
+/* 3x3 matrices are row-major Float64Array(9). */
+function det3(a) {
+  return a[0] * (a[4] * a[8] - a[5] * a[7]) - a[1] * (a[3] * a[8] - a[5] * a[6]) + a[2] * (a[3] * a[7] - a[4] * a[6]);
+}
+function inv3(a, o) {
+  const a00 = a[0], a01 = a[1], a02 = a[2], a10 = a[3], a11 = a[4], a12 = a[5], a20 = a[6], a21 = a[7], a22 = a[8];
+  const b01 = a22 * a11 - a12 * a21, b11 = -a22 * a10 + a12 * a20, b21 = a21 * a10 - a11 * a20;
+  let d = a00 * b01 + a01 * b11 + a02 * b21;
+  if (Math.abs(d) < 1e-12) return false;
+  d = 1 / d;
+  o[0] = b01 * d; o[1] = (-a22 * a01 + a02 * a21) * d; o[2] = (a12 * a01 - a02 * a11) * d;
+  o[3] = b11 * d; o[4] = (a22 * a00 - a02 * a20) * d; o[5] = (-a12 * a00 + a02 * a10) * d;
+  o[6] = b21 * d; o[7] = (-a21 * a00 + a01 * a20) * d; o[8] = (a11 * a00 - a01 * a10) * d;
+  return true;
+}
+function mul3(a, b, o) { // o = a * b  (o must not alias)
+  for (let r = 0; r < 3; r++) {
+    const x = a[3 * r], y = a[3 * r + 1], z = a[3 * r + 2];
+    o[3 * r] = x * b[0] + y * b[3] + z * b[6];
+    o[3 * r + 1] = x * b[1] + y * b[4] + z * b[7];
+    o[3 * r + 2] = x * b[2] + y * b[5] + z * b[8];
+  }
+}
+function mulT3(a, b, o) { // o = aᵀ * b
+  for (let r = 0; r < 3; r++) {
+    const x = a[r], y = a[3 + r], z = a[6 + r];
+    o[3 * r] = x * b[0] + y * b[3] + z * b[6];
+    o[3 * r + 1] = x * b[1] + y * b[4] + z * b[7];
+    o[3 * r + 2] = x * b[2] + y * b[5] + z * b[8];
+  }
+}
+function quatToMat(q, m) {
+  const x = q[0], y = q[1], z = q[2], w = q[3];
+  const x2 = x + x, y2 = y + y, z2 = z + z;
+  const xx = x * x2, xy = x * y2, xz = x * z2, yy = y * y2, yz = y * z2, zz = z * z2, wx = w * x2, wy = w * y2, wz = w * z2;
+  m[0] = 1 - (yy + zz); m[1] = xy - wz; m[2] = xz + wy;
+  m[3] = xy + wz; m[4] = 1 - (xx + zz); m[5] = yz - wx;
+  m[6] = xz - wy; m[7] = yz + wx; m[8] = 1 - (xx + yy);
+}
+/* Robust rotation extraction (Müller et al. 2016), warm-started from the previous
+ * frame's quaternion so it never flips, even through inverted configurations. */
+function extractRotation(A, q, R, iters) {
+  for (let it = 0; it < iters; it++) {
+    quatToMat(q, R);
+    const r0x = R[0], r0y = R[3], r0z = R[6], r1x = R[1], r1y = R[4], r1z = R[7], r2x = R[2], r2y = R[5], r2z = R[8];
+    const a0x = A[0], a0y = A[3], a0z = A[6], a1x = A[1], a1y = A[4], a1z = A[7], a2x = A[2], a2y = A[5], a2z = A[8];
+    let ox = (r0y * a0z - r0z * a0y) + (r1y * a1z - r1z * a1y) + (r2y * a2z - r2z * a2y);
+    let oy = (r0z * a0x - r0x * a0z) + (r1z * a1x - r1x * a1z) + (r2z * a2x - r2x * a2z);
+    let oz = (r0x * a0y - r0y * a0x) + (r1x * a1y - r1y * a1x) + (r2x * a2y - r2y * a2x);
+    const den = Math.abs(r0x * a0x + r0y * a0y + r0z * a0z + r1x * a1x + r1y * a1y + r1z * a1z + r2x * a2x + r2y * a2y + r2z * a2z) + 1e-9;
+    ox /= den; oy /= den; oz /= den;
+    const w = Math.hypot(ox, oy, oz);
+    if (w < 1e-9) break;
+    const s = Math.sin(w * 0.5) / w, c = Math.cos(w * 0.5);
+    const ax = ox * s, ay = oy * s, az = oz * s;
+    const qx = q[0], qy = q[1], qz = q[2], qw = q[3];
+    let nx = c * qx + ax * qw + ay * qz - az * qy;
+    let ny = c * qy - ax * qz + ay * qw + az * qx;
+    let nz = c * qz + ax * qy - ay * qx + az * qw;
+    let nw = c * qw - ax * qx - ay * qy - az * qz;
+    const l = 1 / Math.hypot(nx, ny, nz, nw);
+    q[0] = nx * l; q[1] = ny * l; q[2] = nz * l; q[3] = nw * l;
+  }
+  quatToMat(q, R);
+}
+
+/* =====================================================================
+ *  Flavours
+ * ===================================================================== */
+// `thick` is the colour of white light after passing through 0.45 units of jelly
+const FLAVORS = [
+  { name: 'Cherry',    swatch: '#e2223a', deep: '#8e0718', thick: '#a3001a' },
+  { name: 'Orange',    swatch: '#ff8a1f', deep: '#c94a00', thick: '#e85a00' },
+  { name: 'Lemon',     swatch: '#ffd83a', deep: '#d79a00', thick: '#f2b800' },
+  { name: 'Apple',     swatch: '#78cd3b', deep: '#2f8a12', thick: '#3a9a10' },
+  { name: 'Pineapple', swatch: '#f4ecd2', deep: '#cdbf96', thick: '#e6d59e' },
+];
+for (const f of FLAVORS) {
+  const lin = hexRgb(f.thick).map(srgbToLinear);
+  // Beer–Lambert absorption coefficient per world unit of jelly
+  f.sigma = lin.map(c => -Math.log(Math.max(c, 1e-3)) / 0.45);
+  // colour of light that made it through ~0.3 units of jelly: tints the shadow
+  f.shade = f.sigma.map(s => 0.2 + 0.6 * Math.exp(-s * 0.3));
+}
+
+/* =====================================================================
+ *  The bear: mass points, shape-matching clusters, strands and features
+ *  (rest pose, y up, facing +z, feet on y = 0, ~1.06 units tall)
+ * ===================================================================== */
+const HEAD = 0, EAR_L = 1, EAR_R = 2, SNOUT = 3, CHEST = 4, BELLY = 5, HAND_L = 6, HAND_R = 7, FOOT_L = 8, FOOT_R = 9;
+const PARTS = [
+  // pos, visual radius, ellipsoid shape, mass, owner (0 head group, 1 torso group), grab-pick boost
+  { name: 'head',  pos: [0, 0.80, 0],            r: 0.228, ell: [1.07, 0.95, 0.90], m: 1.00, own: 0, pick: 1.0 },
+  { name: 'ear',   pos: [-0.168, 0.985, -0.03],  r: 0.078, ell: [1.00, 1.00, 0.70], m: 0.12, own: 0, pick: 1.6 },
+  { name: 'ear',   pos: [0.168, 0.985, -0.03],   r: 0.078, ell: [1.00, 1.00, 0.70], m: 0.12, own: 0, pick: 1.6 },
+  { name: 'snout', pos: [0, 0.745, 0.17],        r: 0.102, ell: [1.18, 0.86, 0.95], m: 0.22, own: 0, pick: 1.25 },
+  { name: 'body',  pos: [0, 0.525, 0],           r: 0.212, ell: [1.00, 1.00, 0.86], m: 0.90, own: 1, pick: 1.0 },
+  { name: 'belly', pos: [0, 0.27, -0.03],        r: 0.258, ell: [1.04, 0.98, 0.86], m: 1.25, own: 1, pick: 1.0 },
+  { name: 'hand',  pos: [-0.238, 0.48, 0.105],   r: 0.074, ell: [1.00, 1.00, 1.00], m: 0.16, own: 1, pick: 1.6 },
+  { name: 'hand',  pos: [0.238, 0.48, 0.105],    r: 0.074, ell: [1.00, 1.00, 1.00], m: 0.16, own: 1, pick: 1.6 },
+  { name: 'foot',  pos: [-0.135, 0.075, 0.1],    r: 0.090, ell: [0.95, 0.80, 1.18], m: 0.28, own: 1, pick: 1.45 },
+  { name: 'foot',  pos: [0.135, 0.075, 0.1],     r: 0.090, ell: [0.95, 0.80, 1.18], m: 0.28, own: 1, pick: 1.45 },
+];
+const N = PARTS.length;
+/* Stretchy strands: tapered capsules between attachment points; they thin as they lengthen. */
+const STRANDS = [
+  { a: CHEST, ao: [0, 0.07, 0],             b: HEAD,   bo: [0, -0.08, 0],  ra: 0.150, rb: 0.150 }, // neck
+  { a: BELLY, ao: [0, 0.06, 0.025],         b: CHEST,  bo: [0, -0.06, 0],  ra: 0.190, rb: 0.170 }, // waist
+  { a: CHEST, ao: [-0.135, 0.035, 0.03],    b: HAND_L, bo: [0, 0, 0],      ra: 0.075, rb: 0.066 }, // arms
+  { a: CHEST, ao: [0.135, 0.035, 0.03],     b: HAND_R, bo: [0, 0, 0],      ra: 0.075, rb: 0.066 },
+  { a: BELLY, ao: [-0.105, -0.10, 0.07],    b: FOOT_L, bo: [0, 0.02, -0.03], ra: 0.092, rb: 0.084 }, // legs
+  { a: BELLY, ao: [0.105, -0.10, 0.07],     b: FOOT_R, bo: [0, 0.02, -0.03], ra: 0.092, rb: 0.084 },
+  { a: HEAD,  ao: [-0.125, 0.135, -0.02],   b: EAR_L,  bo: [0, 0, 0],      ra: 0.062, rb: 0.058 }, // ears
+  { a: HEAD,  ao: [0.125, 0.135, -0.02],    b: EAR_R,  bo: [0, 0, 0],      ra: 0.062, rb: 0.058 },
+  { a: HEAD,  ao: [0, -0.04, 0.10],         b: SNOUT,  bo: [0, 0, -0.02],  ra: 0.090, rb: 0.085 }, // muzzle
+];
+for (const s of STRANDS) {
+  const A = PARTS[s.a].pos, B = PARTS[s.b].pos;
+  s.L0 = Math.hypot(B[0] + s.bo[0] - A[0] - s.ao[0], B[1] + s.bo[1] - A[1] - s.ao[1], B[2] + s.bo[2] - A[2] - s.ao[2]);
+}
+/* Tiny moulded details: bumps melted into the surface. */
+const FEATURES = [
+  { p: HEAD,  o: [-0.080, 0.042, 0.188], r: 0.036, ell: [1.0, 1.1, 0.75] },  // eyes
+  { p: HEAD,  o: [0.080, 0.042, 0.188],  r: 0.036, ell: [1.0, 1.1, 0.75] },
+  { p: SNOUT, o: [0, 0.035, 0.088],      r: 0.044, ell: [1.25, 0.85, 0.8] }, // nose
+];
+/* Shape-matching clusters: a stiff head, a stiff torso, and a softer whole-body
+ * cluster whose volume-preserving linear term gives squash & stretch. */
+const CLUSTERS = [
+  { idx: [HEAD, EAR_L, EAR_R, SNOUT], k: 2400, beta: 0.1 },
+  { idx: [CHEST, BELLY, HAND_L, HAND_R, FOOT_L, FOOT_R], k: 1800, beta: 0.2 },
+  { idx: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], k: 1300, beta: 0.28 },
+];
+
+const MASS = new Float64Array(N), INV_MASS = new Float64Array(N), REST = new Float64Array(N * 3);
+const REST_COM = [0, 0, 0];
+let TOTAL_MASS = 0;
+PARTS.forEach((p, i) => {
+  MASS[i] = p.m; INV_MASS[i] = 1 / p.m; TOTAL_MASS += p.m;
+  for (let a = 0; a < 3; a++) { REST[3 * i + a] = p.pos[a]; REST_COM[a] += p.pos[a] * p.m; }
+});
+for (let a = 0; a < 3; a++) REST_COM[a] /= TOTAL_MASS;
+const CONTACT_R = PARTS.map(p => p.r * (p.ell[0] + p.ell[1] + p.ell[2]) / 3);
+// distance from each part to the centre of mass of all the others (for the Stretch readout)
+const REST_REACH = PARTS.map((p, i) => {
+  let m = 0; const c = [0, 0, 0];
+  PARTS.forEach((q, j) => { if (j !== i) { m += q.m; for (let a = 0; a < 3; a++) c[a] += q.pos[a] * q.m; } });
+  return Math.hypot(p.pos[0] - c[0] / m, p.pos[1] - c[1] / m, p.pos[2] - c[2] / m);
+});
+const CLUSTER_DEFS = CLUSTERS.map(c => {
+  const n = c.idx.length, m = new Float64Array(n), q = new Float64Array(n * 3);
+  let M = 0; const c0 = [0, 0, 0];
+  c.idx.forEach((i, k) => { m[k] = MASS[i]; M += MASS[i]; for (let a = 0; a < 3; a++) c0[a] += REST[3 * i + a] * MASS[i]; });
+  for (let a = 0; a < 3; a++) c0[a] /= M;
+  const Aqq = new Float64Array(9);
+  c.idx.forEach((i, k) => {
+    for (let a = 0; a < 3; a++) q[3 * k + a] = REST[3 * i + a] - c0[a];
+    for (let r = 0; r < 3; r++) for (let s = 0; s < 3; s++) Aqq[3 * r + s] += m[k] * q[3 * k + r] * q[3 * k + s];
+  });
+  const AqqInv = new Float64Array(9); inv3(Aqq, AqqInv);
+  return { idx: Int32Array.from(c.idx), m, M, q, AqqInv, k: c.k, beta: c.beta };
+});
+
+/* =====================================================================
+ *  Physics constants
+ * ===================================================================== */
+const H = 1 / 240;              // fixed sub-step
+const MAX_SUBSTEPS = 8;
+const GRAV = 22;                // toy-scale gravity, units/s²
+const MU_GROUND = 0.75, E_GROUND = 0.04;
+const MU_BEAR = 0.35, E_BEAR = 0.12;
+const WALL_E = 0.45;
+const ADH_K = 1100, ADH_BREAK = 0.14, ADH_SLIDE2 = 0.24 * 0.24;
+const LAUNCH_GAIN = 12;
+const FLAT_K = 140, FLAT_D = 7;
+const SLEEP_V2 = 0.07 * 0.07;
+const MAX_BEARS = 30;
+
+const world = {
+  bears: [], time: 0, acc: 0,
+  stiffMul: 1, damp: 5, bounceMul: 1,
+  hops: QS.get('hops') !== '0',
+  bounces: 0,
+  bounds: { zBack: -1.8, zFront: 2.4, lA: -4.5, lB: 0, rA: 4.5, rB: 0, cx: 0, cz: 0.3 },
+  focus: null, focusPart: -1, stretch: 1,
+  queue: [],
+};
+
+/* =====================================================================
+ *  Soft-body bear
+ * ===================================================================== */
+const _m9a = new Float64Array(9), _m9b = new Float64Array(9), _m9c = new Float64Array(9);
+let bearSerial = 0;
+
+class Bear {
+  constructor(flavor, pos, quat) {
+    this.id = bearSerial++;
+    this.flavor = flavor;
+    this.x = new Float64Array(N * 3);
+    this.v = new Float64Array(N * 3);
+    this.rg = new Float64Array(N);   // support radius toward the table (orientation + squash aware)
+    this.rc = new Float64Array(N);   // contact radius against other bears
+    this.contact = new Uint8Array(N);
+    const R = new Float64Array(9); quatToMat(quat, R);
+    for (let i = 0; i < N; i++) {
+      const lx = REST[3 * i] - REST_COM[0], ly = REST[3 * i + 1] - REST_COM[1], lz = REST[3 * i + 2] - REST_COM[2];
+      this.x[3 * i] = pos[0] + R[0] * lx + R[1] * ly + R[2] * lz;
+      this.x[3 * i + 1] = pos[1] + R[3] * lx + R[4] * ly + R[5] * lz;
+      this.x[3 * i + 2] = pos[2] + R[6] * lx + R[7] * ly + R[8] * lz;
+    }
+    this.cl = CLUSTER_DEFS.map(d => ({
+      quat: [quat[0], quat[1], quat[2], quat[3]], R: Float64Array.from(R), A: Float64Array.from(R),
+      T: Float64Array.from(R), Apq: new Float64Array(9), c: [pos[0], pos[1], pos[2]], g: new Float64Array(d.idx.length * 3),
+    }));
+    this.S = new Float64Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    this.sy = 1;
+    this.pose = [1, 1, 1]; this.pressC = 1;
+    this.grab = -1; this.target = [0, 0, 0]; this.adh = null;
+    this.sleeping = false; this.sleepT = 0;
+    this.airT = 1; this.grounded = false; this.touching = false; this.impact = 0;
+    this.hop = { phase: 'idle', t: 0, timer: rr(1.2, 5.5) };
+    this.reb = { armed: false, min: 1, start: 1, t: 0, bonus: 0 };
+    this.scale = 1; this.despawn = -1; this.born = world.time;
+    this.aabb = new Float64Array(6);
+    this.com = [pos[0], pos[1], pos[2]];
+    this.wRig = [0, 0, 0];
+    this.solveClusters();
+    this.updateShape();
+  }
+
+  wake() { this.sleeping = false; this.sleepT = 0; }
+
+  setPose(c) { const s = 1 / Math.sqrt(c); this.pose[0] = s; this.pose[1] = c; this.pose[2] = s; }
+
+  solveClusters() {
+    const X = this.x, px = this.pose[0], py = this.pose[1], pz = this.pose[2];
+    const ipx = 1 / px, ipy = 1 / py, ipz = 1 / pz;
+    for (let ci = 0; ci < 3; ci++) {
+      const d = CLUSTER_DEFS[ci], st = this.cl[ci], idx = d.idx, m = d.m, q = d.q, n = idx.length;
+      let cx = 0, cy = 0, cz = 0;
+      for (let k = 0; k < n; k++) { const i3 = idx[k] * 3, mk = m[k]; cx += mk * X[i3]; cy += mk * X[i3 + 1]; cz += mk * X[i3 + 2]; }
+      cx /= d.M; cy /= d.M; cz /= d.M;
+      let a00 = 0, a01 = 0, a02 = 0, a10 = 0, a11 = 0, a12 = 0, a20 = 0, a21 = 0, a22 = 0;
+      for (let k = 0; k < n; k++) {
+        const i3 = idx[k] * 3, mk = m[k];
+        const dx = (X[i3] - cx) * mk, dy = (X[i3 + 1] - cy) * mk, dz = (X[i3 + 2] - cz) * mk;
+        const qx = q[3 * k] * px, qy = q[3 * k + 1] * py, qz = q[3 * k + 2] * pz;
+        a00 += dx * qx; a01 += dx * qy; a02 += dx * qz;
+        a10 += dy * qx; a11 += dy * qy; a12 += dy * qz;
+        a20 += dz * qx; a21 += dz * qy; a22 += dz * qz;
+      }
+      const Apq = st.Apq;
+      Apq[0] = a00; Apq[1] = a01; Apq[2] = a02; Apq[3] = a10; Apq[4] = a11; Apq[5] = a12; Apq[6] = a20; Apq[7] = a21; Apq[8] = a22;
+      const R = st.R, A = st.A, T = st.T, I = d.AqqInv;
+      extractRotation(Apq, st.quat, R, 3);
+      // linear best fit A = Apq · (P Aqq Pᵀ)⁻¹ for the posed rest shape
+      for (let r = 0; r < 3; r++) {
+        const x0 = Apq[3 * r] * ipx, x1 = Apq[3 * r + 1] * ipy, x2 = Apq[3 * r + 2] * ipz;
+        A[3 * r] = (x0 * I[0] + x1 * I[3] + x2 * I[6]) * ipx;
+        A[3 * r + 1] = (x0 * I[1] + x1 * I[4] + x2 * I[7]) * ipy;
+        A[3 * r + 2] = (x0 * I[2] + x1 * I[5] + x2 * I[8]) * ipz;
+      }
+      const det = det3(A);
+      if (det > 0.04) {
+        const s = 1 / Math.cbrt(det); // volume preservation: det(A) = 1
+        let dev = 0;
+        for (let e = 0; e < 9; e++) { A[e] *= s; const t = A[e] - R[e]; dev += t * t; }
+        dev = Math.sqrt(dev);
+        const lim = dev > 0.9 ? 0.9 / dev : 1; // keep wild fits from flinging goals around
+        const beta = d.beta;
+        for (let e = 0; e < 9; e++) { A[e] = R[e] + (A[e] - R[e]) * lim; T[e] = beta * A[e] + (1 - beta) * R[e]; }
+      } else {
+        for (let e = 0; e < 9; e++) { A[e] = R[e]; T[e] = R[e]; }
+      }
+      st.c[0] = cx; st.c[1] = cy; st.c[2] = cz;
+      const g = st.g;
+      for (let k = 0; k < n; k++) {
+        const qx = q[3 * k] * px, qy = q[3 * k + 1] * py, qz = q[3 * k + 2] * pz;
+        g[3 * k] = cx + T[0] * qx + T[1] * qy + T[2] * qz;
+        g[3 * k + 1] = cy + T[3] * qx + T[4] * qy + T[5] * qz;
+        g[3 * k + 2] = cz + T[6] * qx + T[7] * qy + T[8] * qz;
+      }
+    }
+  }
+
+  integrate(h) {
+    const X = this.x, V = this.v, gi = this.grab;
+    for (let i = 0; i < N; i++) V[3 * i + 1] -= GRAV * h;
+    this.solveClusters();
+    const km = world.stiffMul * h;
+    for (let ci = 0; ci < 3; ci++) {
+      const d = CLUSTER_DEFS[ci], g = this.cl[ci].g, k = d.k * km, idx = d.idx;
+      for (let kk = 0; kk < idx.length; kk++) {
+        const i = idx[kk];
+        if (i === gi) continue;
+        const i3 = 3 * i;
+        V[i3] += (g[3 * kk] - X[i3]) * k;
+        V[i3 + 1] += (g[3 * kk + 1] - X[i3 + 1]) * k;
+        V[i3 + 2] += (g[3 * kk + 2] - X[i3 + 2]) * k;
+      }
+    }
+    this.dampToRigid(h);
+    // flat base keeps the bear sitting; while you press down on it, it keeps it from
+    // tipping so the push turns into squash (and sideways bulge) instead
+    if (this.grounded && (gi < 0 || this.target[1] < this.grabY0 - 0.04)) this.flatBase(h);
+    if (gi >= 0) {
+      if (this.adh) {
+        const k = ADH_K * h;
+        for (const a of this.adh) {
+          if (!a.on) continue;
+          const i3 = 3 * a.i, dy = X[i3 + 1] - this.rg[a.i], dx = X[i3] - a.x, dz = X[i3 + 2] - a.z;
+          if (dy > ADH_BREAK || dx * dx + dz * dz > ADH_SLIDE2) { a.on = false; continue; } // pops off the table
+          if (dy > 0) V[i3 + 1] -= dy * k;
+          V[i3] -= dx * k * 0.7; V[i3 + 2] -= dz * k * 0.7;
+          V[i3] *= 1 - 6 * h; V[i3 + 2] *= 1 - 6 * h;
+        }
+      }
+      const i3 = 3 * gi, f = (1 - Math.exp(-h / 0.016)) / h;
+      V[i3] = (this.target[0] - X[i3]) * f;
+      V[i3 + 1] = (this.target[1] - X[i3 + 1]) * f;
+      V[i3 + 2] = (this.target[2] - X[i3 + 2]) * f;
+    }
+    for (let i = 0; i < 3 * N; i++) X[i] += V[i] * h;
+  }
+
+  /* Damp deformation velocities only: blend each point toward the rigid motion
+   * (linear + angular) of the whole bear so flight and spin are preserved. */
+  dampToRigid(h) {
+    const X = this.x, V = this.v;
+    let cx = 0, cy = 0, cz = 0, vx = 0, vy = 0, vz = 0;
+    for (let i = 0; i < N; i++) {
+      const m = MASS[i], i3 = 3 * i;
+      cx += m * X[i3]; cy += m * X[i3 + 1]; cz += m * X[i3 + 2];
+      vx += m * V[i3]; vy += m * V[i3 + 1]; vz += m * V[i3 + 2];
+    }
+    const iM = 1 / TOTAL_MASS;
+    cx *= iM; cy *= iM; cz *= iM; vx *= iM; vy *= iM; vz *= iM;
+    let Lx = 0, Ly = 0, Lz = 0, I00 = 0, I01 = 0, I02 = 0, I11 = 0, I12 = 0, I22 = 0;
+    for (let i = 0; i < N; i++) {
+      const m = MASS[i], i3 = 3 * i;
+      const rx = X[i3] - cx, ry = X[i3 + 1] - cy, rz = X[i3 + 2] - cz;
+      const ux = V[i3] - vx, uy = V[i3 + 1] - vy, uz = V[i3 + 2] - vz;
+      Lx += m * (ry * uz - rz * uy); Ly += m * (rz * ux - rx * uz); Lz += m * (rx * uy - ry * ux);
+      const r2 = rx * rx + ry * ry + rz * rz;
+      I00 += m * (r2 - rx * rx); I11 += m * (r2 - ry * ry); I22 += m * (r2 - rz * rz);
+      I01 -= m * rx * ry; I02 -= m * rx * rz; I12 -= m * ry * rz;
+    }
+    const I = _m9a; I[0] = I00; I[1] = I01; I[2] = I02; I[3] = I01; I[4] = I11; I[5] = I12; I[6] = I02; I[7] = I12; I[8] = I22;
+    let wx = 0, wy = 0, wz = 0;
+    if (inv3(I, _m9b)) {
+      const J = _m9b;
+      wx = J[0] * Lx + J[1] * Ly + J[2] * Lz; wy = J[3] * Lx + J[4] * Ly + J[5] * Lz; wz = J[6] * Lx + J[7] * Ly + J[8] * Lz;
+    }
+    const f = 1 - Math.exp(-world.damp * h), air = 1 - 0.1 * h, gi = this.grab;
+    for (let i = 0; i < N; i++) {
+      if (i === gi) continue;
+      const i3 = 3 * i, rx = X[i3] - cx, ry = X[i3 + 1] - cy, rz = X[i3 + 2] - cz;
+      const tx = vx + wy * rz - wz * ry, ty = vy + wz * rx - wx * rz, tz = vz + wx * ry - wy * rx;
+      V[i3] = (V[i3] + (tx - V[i3]) * f) * air;
+      V[i3 + 1] = (V[i3 + 1] + (ty - V[i3 + 1]) * f) * air;
+      V[i3 + 2] = (V[i3 + 2] + (tz - V[i3 + 2]) * f) * air;
+    }
+    this.com[0] = cx; this.com[1] = cy; this.com[2] = cz;
+    this.wRig[0] = wx; this.wRig[1] = wy; this.wRig[2] = wz;
+  }
+
+  /* Gummy bears are cast with a flat bottom: while sitting roughly upright on the
+   * table they resist rocking over (rolling resistance + a gentle restoring torque). */
+  flatBase(h) {
+    const R = this.cl[2].R, ux = R[1], uy = R[4], uz = R[7];
+    if (uy < 0.74) return;
+    const ax = -uz, az = ux, s = Math.hypot(ax, az);
+    const X = this.x, V = this.v, c = this.com;
+    // horizontal angular velocity of the body (rocking), from the rigid fit in dampToRigid
+    const wx = this.wRig[0], wz = this.wRig[2];
+    const ang = Math.atan2(s, uy), k = s > 1e-6 ? FLAT_K * ang / s : 0;
+    const dwx = (ax * k - wx * FLAT_D) * h, dwz = (az * k - wz * FLAT_D) * h;
+    for (let i = 0; i < N; i++) {
+      const i3 = 3 * i, rx = X[i3] - c[0], ry = X[i3 + 1] - c[1], rz = X[i3 + 2] - c[2];
+      V[i3] += -dwz * ry; V[i3 + 1] += dwz * rx - dwx * rz; V[i3 + 2] += dwx * ry;
+    }
+  }
+
+  centerOfMass(out) {
+    let cx = 0, cy = 0, cz = 0;
+    for (let i = 0; i < N; i++) { const m = MASS[i]; cx += m * this.x[3 * i]; cy += m * this.x[3 * i + 1]; cz += m * this.x[3 * i + 2]; }
+    out[0] = cx / TOTAL_MASS; out[1] = cy / TOTAL_MASS; out[2] = cz / TOTAL_MASS;
+    return out;
+  }
+
+  /* Per-frame: the visual squash/stretch tensor, compression along world-up and
+   * the orientation/squash-aware contact radii. */
+  updateShape() {
+    const G = this.cl[2], R = G.R, A = G.A, S = this.S;
+    mulT3(R, A, _m9a); // S ≈ Rᵀ·A (stretch part of the volume-preserving fit)
+    const gain = this.grab >= 0 ? 0.55 : 0.92;
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
+      const sym = 0.5 * (_m9a[3 * r + c] + _m9a[3 * c + r]);
+      S[3 * r + c] = (r === c ? 1 : 0) + (sym - (r === c ? 1 : 0)) * gain;
+    }
+    for (let d = 0; d < 9; d += 4) S[d] = clamp(S[d], 0.42, 2.1);
+    const ux = R[3], uy = R[4], uz = R[5]; // world up expressed in the bear's rest frame
+    let sx = S[0] * ux + S[1] * uy + S[2] * uz, sy = S[3] * ux + S[4] * uy + S[5] * uz, sz = S[6] * ux + S[7] * uy + S[8] * uz;
+    this.sy = ux * sx + uy * sy + uz * sz;
+    // contact radii follow only part of the squash, so a squashed bear can't sink into the table
+    sx = ux + (sx - ux) * 0.45; sy = uy + (sy - uy) * 0.45; sz = uz + (sz - uz) * 0.45;
+    const sc = this.scale;
+    for (let i = 0; i < N; i++) {
+      const p = PARTS[i], r = p.r * sc;
+      this.rg[i] = r * Math.hypot(p.ell[0] * sx, p.ell[1] * sy, p.ell[2] * sz);
+      this.rc[i] = CONTACT_R[i] * sc;
+    }
+  }
+
+  calm() {
+    if (this.sleeping) return true;
+    let m = 0; for (let i = 0; i < 3 * N; i += 3) m = Math.max(m, this.v[i] ** 2 + this.v[i + 1] ** 2 + this.v[i + 2] ** 2);
+    return m < 0.35 * 0.35;
+  }
+
+  /* Jump: vertical kick (stronger at the top so the bear stretches), drift, spin and,
+   * if it is lying down, a twist that lands it back on its feet. */
+  launch(vy, hs, dir, spin, right) {
+    const X = this.x, V = this.v, c = this.centerOfMass([0, 0, 0]), R = this.cl[2].R;
+    let wx = 0, wz = 0;
+    if (right) {
+      const ux = R[1], uy = R[4], uz = R[7];      // bear's up in world
+      const ax = -uz, az = ux;                    // up × ŷ: rotates up toward ŷ
+      const s = Math.hypot(ax, az), ang = Math.atan2(s, uy);
+      if (ang > 0.15 && s > 1e-5) {
+        const T = Math.max(0.28, 2 * vy / GRAV);
+        const w = ang / T * 0.95;
+        wx = ax / s * w; wz = az / s * w;
+      }
+    }
+    // drift toward the middle when close to the walls
+    const b = world.bounds;
+    let dx = Math.cos(dir), dz = Math.sin(dir);
+    const tx = b.cx - c[0], tz = b.cz - c[2], tl = Math.hypot(tx, tz);
+    if (tl > 1.2) { dx = dx * 0.4 + tx / tl * 0.6; dz = dz * 0.4 + tz / tl * 0.6; const l = Math.hypot(dx, dz); dx /= l; dz /= l; }
+    for (let i = 0; i < N; i++) {
+      if (i === this.grab) continue;
+      const i3 = 3 * i, rx = X[i3] - c[0], ry = X[i3 + 1] - c[1], rz = X[i3 + 2] - c[2];
+      const f = 1 + 0.38 * ry / 0.5;
+      V[i3] += dx * hs - spin * rz - wz * ry;
+      V[i3 + 1] += vy * f + (wz * rx - wx * rz);
+      V[i3 + 2] += dz * hs + (spin * rx) + (wx * ry);
+    }
+    this.wake();
+  }
+
+  updateBehaviour(dt) {
+    const hop = this.hop, reb = this.reb;
+    if (this.despawn >= 0) {
+      this.despawn += dt;
+      this.scale = Math.max(0, 1 - smooth(Math.min(1, this.despawn / 0.45)));
+      this.wake();
+    }
+    if (this.grab >= 0 || this.despawn >= 0) {
+      hop.phase = 'idle'; hop.timer = Math.max(hop.timer, 1.4);
+      let c = 1;
+      if (this.grab >= 0 && this.grounded) {
+        // pressing down: the jelly yields, flattening (and bulging) in proportion
+        const ratio = clamp(this.target[1] / Math.max(0.2, this.grabY0), 0, 1);
+        c = clamp(0.3 + 0.7 * ratio, 0.38, 1);
+      }
+      this.pressC = lerp(this.pressC, c, Math.min(1, dt * 14));
+      this.setPose(this.pressC);
+      reb.armed = false;
+    } else {
+      if (this.pressC < 0.999) { // let go of a press: the jelly springs back almost at once
+        this.pressC = Math.min(1, lerp(this.pressC, 1, Math.min(1, dt * 30)) + 0.02); this.setPose(this.pressC); this.wake();
+      }
+      if (hop.phase === 'idle') {
+        if (world.hops && (this.grounded || this.sleeping) && !reb.armed) {
+          hop.timer -= dt;
+          if (hop.timer <= 0) {
+            if (this.calm()) { hop.phase = 'crouch'; hop.t = 0; this.wake(); } else hop.timer = 0.6;
+          }
+        }
+      } else if (hop.phase === 'crouch') {
+        hop.t += dt;
+        const u = Math.min(1, hop.t / 0.17);
+        this.setPose(1 - 0.2 * smooth(u));
+        if (u >= 1) {
+          const lying = this.cl[2].R[4] < 0.75;
+          this.launch(rr(2.7, 3.7) * (lying ? 1.35 : 1), rr(0.2, 0.85), rand() * TAU, rr(-2.4, 2.4), true);
+          hop.phase = 'air'; hop.t = 0;
+        }
+      } else if (hop.phase === 'air') {
+        hop.t += dt;
+        const u = Math.min(1, hop.t / 0.32);
+        this.setPose(1 + 0.12 * (1 - u) * (1 - u));
+        if ((hop.t > 0.32 && this.grounded) || hop.t > 3) { hop.phase = 'idle'; hop.timer = rr(2.4, 7.5); this.setPose(1); }
+      }
+      // Rebound: a hard squash (landing, pancake, snapped-back stretch) launches the bear back up.
+      if (!reb.armed && this.grounded && this.sy < 0.8 && hop.phase === 'idle') {
+        reb.armed = true; reb.min = this.sy; reb.start = 1; reb.t = 0; reb.bonus = 0;
+      }
+      if (reb.armed) {
+        reb.t += dt;
+        reb.min = Math.min(reb.min, this.sy);
+        const dipped = reb.min < reb.start - 0.035;
+        if ((dipped && this.sy > reb.min + 0.09) || reb.t > 0.6) {
+          reb.armed = false;
+          const vy = Math.min(7.5, (Math.max(0, 0.88 - reb.min) * LAUNCH_GAIN + reb.bonus) * world.bounceMul);
+          if (vy > 1.3 && this.grounded) this.launch(vy, rr(0, 0.25), rand() * TAU, rr(-0.7, 0.7), true);
+        }
+      }
+    }
+  }
+
+  startGrab(i, target) {
+    this.wake();
+    this.grab = i;
+    this.grabY0 = this.x[3 * i + 1];
+    this.target[0] = target[0]; this.target[1] = target[1]; this.target[2] = target[2];
+    this.adh = [];
+    for (let j = 0; j < N; j++) {
+      if (j === i) continue;
+      if (this.x[3 * j + 1] < this.rg[j] + 0.012) this.adh.push({ i: j, x: this.x[3 * j], z: this.x[3 * j + 2], on: true });
+    }
+    this.hop.phase = 'idle';
+  }
+
+  release(vel) {
+    const i = this.grab;
+    if (i < 0) return;
+    this.grab = -1; this.adh = null;
+    const V = this.v;
+    const sp = Math.hypot(vel[0], vel[1], vel[2]);
+    if (sp > 1.2) {
+      const s = Math.min(1, 16 / sp), tx = vel[0] * s, ty = vel[1] * s, tz = vel[2] * s;
+      let vx = 0, vy = 0, vz = 0;
+      for (let j = 0; j < N; j++) { vx += MASS[j] * V[3 * j]; vy += MASS[j] * V[3 * j + 1]; vz += MASS[j] * V[3 * j + 2]; }
+      vx /= TOTAL_MASS; vy /= TOTAL_MASS; vz /= TOTAL_MASS;
+      for (let j = 0; j < N; j++) {
+        V[3 * j] += (tx * 0.85 - vx) * 0.8; V[3 * j + 1] += (ty * 0.85 - vy) * 0.8; V[3 * j + 2] += (tz * 0.85 - vz) * 0.8;
+      }
+      V[3 * i] = tx; V[3 * i + 1] = ty; V[3 * i + 2] = tz;
+    }
+    // snap-back hop when a big stretch is let go near the table
+    if (world.focus === this && world.stretch > 1.3 && sp < 6) {
+      const reb = this.reb;
+      reb.armed = true; reb.min = this.sy; reb.start = this.sy; reb.t = 0;
+      reb.bonus = Math.min(3.4, 1.8 * (world.stretch - 1));
+    }
+    this.wake();
+  }
+
+  stretchOf(i) {
+    let m = 0, cx = 0, cy = 0, cz = 0;
+    for (let j = 0; j < N; j++) if (j !== i) { m += MASS[j]; cx += MASS[j] * this.x[3 * j]; cy += MASS[j] * this.x[3 * j + 1]; cz += MASS[j] * this.x[3 * j + 2]; }
+    return Math.hypot(this.x[3 * i] - cx / m, this.x[3 * i + 1] - cy / m, this.x[3 * i + 2] - cz / m) / REST_REACH[i];
+  }
+
+  /* Implicit-surface primitives in the bear's local frame (origin = body centre,
+   * axes = body rotation), written straight into the mesher. */
+  gather(mz) {
+    const G = this.cl[2], RG = G.R, c = G.c, S = this.S, sc = this.scale;
+    const Rrel = [new Float64Array(9), new Float64Array(9)];
+    mulT3(RG, this.cl[0].R, Rrel[0]);
+    mulT3(RG, this.cl[1].R, Rrel[1]);
+    const RS = [new Float64Array(9), new Float64Array(9)];
+    mul3(Rrel[0], S, RS[0]); mul3(Rrel[1], S, RS[1]);
+    const X = this.x;
+    const loc = this._loc || (this._loc = new Float64Array(N * 3));
+    for (let i = 0; i < N; i++) {
+      const dx = X[3 * i] - c[0], dy = X[3 * i + 1] - c[1], dz = X[3 * i + 2] - c[2];
+      loc[3 * i] = RG[0] * dx + RG[3] * dy + RG[6] * dz;
+      loc[3 * i + 1] = RG[1] * dx + RG[4] * dy + RG[7] * dz;
+      loc[3 * i + 2] = RG[2] * dx + RG[5] * dy + RG[8] * dz;
+    }
+    mz.begin();
+    for (let i = 0; i < N; i++) {
+      const p = PARTS[i];
+      mz.addEllipsoid(loc[3 * i], loc[3 * i + 1], loc[3 * i + 2], RS[p.own], p.r * p.ell[0] * sc, p.r * p.ell[1] * sc, p.r * p.ell[2] * sc);
+    }
+    for (const f of FEATURES) {
+      const M = RS[PARTS[f.p].own], o = f.o;
+      const ox = (M[0] * o[0] + M[1] * o[1] + M[2] * o[2]) * sc, oy = (M[3] * o[0] + M[4] * o[1] + M[5] * o[2]) * sc, oz = (M[6] * o[0] + M[7] * o[1] + M[8] * o[2]) * sc;
+      mz.addEllipsoid(loc[3 * f.p] + ox, loc[3 * f.p + 1] + oy, loc[3 * f.p + 2] + oz, M, f.r * f.ell[0] * sc, f.r * f.ell[1] * sc, f.r * f.ell[2] * sc);
+    }
+    for (const s of STRANDS) {
+      const Ma = RS[PARTS[s.a].own], Mb = RS[PARTS[s.b].own], ao = s.ao, bo = s.bo;
+      const ax = loc[3 * s.a] + (Ma[0] * ao[0] + Ma[1] * ao[1] + Ma[2] * ao[2]) * sc;
+      const ay = loc[3 * s.a + 1] + (Ma[3] * ao[0] + Ma[4] * ao[1] + Ma[5] * ao[2]) * sc;
+      const az = loc[3 * s.a + 2] + (Ma[6] * ao[0] + Ma[7] * ao[1] + Ma[8] * ao[2]) * sc;
+      const bx = loc[3 * s.b] + (Mb[0] * bo[0] + Mb[1] * bo[1] + Mb[2] * bo[2]) * sc;
+      const by = loc[3 * s.b + 1] + (Mb[3] * bo[0] + Mb[4] * bo[1] + Mb[5] * bo[2]) * sc;
+      const bz = loc[3 * s.b + 2] + (Mb[6] * bo[0] + Mb[7] * bo[1] + Mb[8] * bo[2]) * sc;
+      const L = Math.hypot(bx - ax, by - ay, bz - az);
+      const thin = clamp(Math.sqrt(s.L0 * sc / Math.max(L, 1e-4)), 0.25, 1.15); // volume-ish: r ∝ 1/√length
+      mz.addCapsule(ax, ay, az, bx, by, bz, Math.max(0.034 * sc, s.ra * thin * sc), Math.max(0.032 * sc, s.rb * thin * sc));
+    }
+    this.meshC = c; this.meshQ = G.quat;
+  }
+}
+
+/* =====================================================================
+ *  World stepping & collisions
+ * ===================================================================== */
+function physics(dt) {
+  world.acc += dt;
+  let n = 0;
+  while (world.acc >= H && n < MAX_SUBSTEPS) {
+    substep(H);
+    world.acc -= H; n++;
+  }
+  if (n === MAX_SUBSTEPS) world.acc = 0;
+}
+
+function substep(h) {
+  world.time += h;
+  const B = world.bears;
+  for (const b of B) if (!b.sleeping) b.integrate(h);
+  collide(h);
+  for (const b of B) {
+    if (b.sleeping) continue;
+    let ground = false, maxV2 = 0;
+    for (let i = 0; i < N; i++) {
+      if (b.contact[i]) ground = true;
+      const v2 = b.v[3 * i] ** 2 + b.v[3 * i + 1] ** 2 + b.v[3 * i + 2] ** 2;
+      if (i !== b.grab && v2 > maxV2) maxV2 = v2;
+    }
+    if (ground || b.touching) {
+      if (b.airT > 0.12 && b.impact > 1.7 && b.despawn < 0 && world.time > 1.6) world.bounces++;
+      b.airT = 0;
+    } else b.airT += h;
+    b.grounded = ground || (b.touching && b.airT === 0 && b.supported);
+    b.impact = 0;
+    if (b.grab < 0 && b.hop.phase === 'idle' && !b.reb.armed && b.despawn < 0 && maxV2 < SLEEP_V2 && (ground || b.touching)) {
+      b.sleepT += h;
+      if (b.sleepT > 0.5) { b.sleeping = true; b.v.fill(0); }
+    } else b.sleepT = 0;
+  }
+}
+
+function collide(h) {
+  const B = world.bears, bd = world.bounds;
+  const lN = 1 / Math.sqrt(1 + bd.lB * bd.lB), rN = 1 / Math.sqrt(1 + bd.rB * bd.rB);
+  for (const b of B) {
+    if (b.sleeping) continue;
+    b.contact.fill(0); b.touching = false; b.supported = false;
+    const X = b.x, V = b.v, bb = b.aabb;
+    bb[0] = bb[1] = bb[2] = Infinity; bb[3] = bb[4] = bb[5] = -Infinity;
+    for (let i = 0; i < N; i++) {
+      const i3 = 3 * i, kin = i === b.grab;
+      if (!kin) {
+        // table
+        const r = b.rg[i];
+        if (X[i3 + 1] < r) {
+          X[i3 + 1] = r;
+          const vn = V[i3 + 1];
+          if (vn < 0) {
+            if (-vn > b.impact) b.impact = -vn;
+            V[i3 + 1] = -vn * E_GROUND;
+            const dvn = -vn * (1 + E_GROUND), vt = Math.hypot(V[i3], V[i3 + 2]);
+            if (vt > 1e-9) { const red = Math.min(vt, MU_GROUND * dvn) / vt; V[i3] -= V[i3] * red; V[i3 + 2] -= V[i3 + 2] * red; }
+          }
+          b.contact[i] = 1;
+        } else if (X[i3 + 1] < r + 0.004) b.contact[i] = 1;
+        // invisible walls at the edges of the visible table
+        const rc = b.rc[i];
+        if (X[i3 + 2] - rc < bd.zBack) { X[i3 + 2] = bd.zBack + rc; if (V[i3 + 2] < 0) V[i3 + 2] *= -WALL_E; }
+        if (X[i3 + 2] + rc > bd.zFront) { X[i3 + 2] = bd.zFront - rc; if (V[i3 + 2] > 0) V[i3 + 2] *= -WALL_E; }
+        let d = (X[i3] - (bd.lA + bd.lB * X[i3 + 2])) * lN;
+        if (d < rc) {
+          const nx = lN, nz = -bd.lB * lN, p = rc - d;
+          X[i3] += nx * p; X[i3 + 2] += nz * p;
+          const vn = V[i3] * nx + V[i3 + 2] * nz;
+          if (vn < 0) { V[i3] -= (1 + WALL_E) * vn * nx; V[i3 + 2] -= (1 + WALL_E) * vn * nz; }
+        }
+        d = ((bd.rA + bd.rB * X[i3 + 2]) - X[i3]) * rN;
+        if (d < rc) {
+          const nx = -rN, nz = bd.rB * rN, p = rc - d;
+          X[i3] += nx * p; X[i3 + 2] += nz * p;
+          const vn = V[i3] * nx + V[i3 + 2] * nz;
+          if (vn < 0) { V[i3] -= (1 + WALL_E) * vn * nx; V[i3 + 2] -= (1 + WALL_E) * vn * nz; }
+        }
+      }
+      const rc = b.rc[i];
+      if (X[i3] - rc < bb[0]) bb[0] = X[i3] - rc; if (X[i3 + 1] - rc < bb[1]) bb[1] = X[i3 + 1] - rc; if (X[i3 + 2] - rc < bb[2]) bb[2] = X[i3 + 2] - rc;
+      if (X[i3] + rc > bb[3]) bb[3] = X[i3] + rc; if (X[i3 + 1] + rc > bb[4]) bb[4] = X[i3 + 1] + rc; if (X[i3 + 2] + rc > bb[5]) bb[5] = X[i3 + 2] + rc;
+    }
+  }
+  // bear vs bear: sphere contacts between mass points, with friction
+  for (let p = 0; p < B.length; p++) {
+    const A = B[p];
+    for (let q = p + 1; q < B.length; q++) {
+      const C = B[q];
+      if (A.sleeping && C.sleeping) continue;
+      const a = A.aabb, c = C.aabb;
+      if (a[0] > c[3] || a[3] < c[0] || a[1] > c[4] || a[4] < c[1] || a[2] > c[5] || a[5] < c[2]) continue;
+      contactPair(A, C, h);
+    }
+  }
+}
+
+function contactPair(A, C, h) {
+  const XA = A.x, VA = A.v, XC = C.x, VC = C.v;
+  for (let i = 0; i < N; i++) {
+    const i3 = 3 * i, ri = A.rc[i];
+    for (let j = 0; j < N; j++) {
+      const j3 = 3 * j, rs = ri + C.rc[j];
+      let dx = XA[i3] - XC[j3], dy = XA[i3 + 1] - XC[j3 + 1], dz = XA[i3 + 2] - XC[j3 + 2];
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 >= rs * rs) continue;
+      let d = Math.sqrt(d2);
+      if (d < 1e-6) { dx = 0; dy = 1; dz = 0; d = 1e-6; } else { dx /= d; dy /= d; dz /= d; }
+      const pen = rs - d;
+      let vn = (VA[i3] - VC[j3]) * dx + (VA[i3 + 1] - VC[j3 + 1]) * dy + (VA[i3 + 2] - VC[j3 + 2]) * dz;
+      // sleeping bears act as solid ground until something hits them properly
+      if (A.sleeping && (pen > 0.025 || vn < -0.6)) A.wake();
+      if (C.sleeping && (pen > 0.025 || vn < -0.6)) C.wake();
+      const wA = A.sleeping || i === A.grab ? 0 : INV_MASS[i];
+      const wC = C.sleeping || j === C.grab ? 0 : INV_MASS[j];
+      const W = wA + wC;
+      if (W <= 0) continue;
+      const corr = pen / W;
+      XA[i3] += dx * corr * wA; XA[i3 + 1] += dy * corr * wA; XA[i3 + 2] += dz * corr * wA;
+      XC[j3] -= dx * corr * wC; XC[j3 + 1] -= dy * corr * wC; XC[j3 + 2] -= dz * corr * wC;
+      A.touching = C.touching = true;
+      if (dy > 0.45) A.supported = true; else if (dy < -0.45) C.supported = true;
+      if (vn < 0) {
+        if (-vn > A.impact) A.impact = -vn;
+        if (-vn > C.impact) C.impact = -vn;
+        const J = -(1 + E_BEAR) * vn / W;
+        VA[i3] += dx * J * wA; VA[i3 + 1] += dy * J * wA; VA[i3 + 2] += dz * J * wA;
+        VC[j3] -= dx * J * wC; VC[j3 + 1] -= dy * J * wC; VC[j3 + 2] -= dz * J * wC;
+        // Coulomb friction on the tangential slip
+        const rx = VA[i3] - VC[j3], ry = VA[i3 + 1] - VC[j3 + 1], rz = VA[i3 + 2] - VC[j3 + 2];
+        vn = rx * dx + ry * dy + rz * dz;
+        const tx = rx - vn * dx, ty = ry - vn * dy, tz = rz - vn * dz, tl = Math.hypot(tx, ty, tz);
+        if (tl > 1e-9) {
+          const jt = Math.min(tl / W, MU_BEAR * J) / tl;
+          VA[i3] -= tx * jt * wA; VA[i3 + 1] -= ty * jt * wA; VA[i3 + 2] -= tz * jt * wA;
+          VC[j3] += tx * jt * wC; VC[j3 + 1] += ty * jt * wC; VC[j3 + 2] += tz * jt * wC;
+        }
+      }
+    }
+  }
+}
+
+function frameUpdate(dt) {
+  // timed spawns (pour)
+  for (let k = world.queue.length - 1; k >= 0; k--) {
+    const s = world.queue[k];
+    if (world.time >= s.at) { world.queue.splice(k, 1); s.fn(); }
+  }
+  for (const b of world.bears) {
+    if (!b.sleeping) b.updateShape();
+    b.updateBehaviour(dt);
+  }
+  for (let k = world.bears.length - 1; k >= 0; k--) {
+    const b = world.bears[k];
+    if (b.despawn >= 0 && b.scale <= 0.01) removeBear(b);
+  }
+  // live stretch readout follows the bear you last touched
+  const f = world.focus;
+  let s = 1;
+  if (f && world.bears.includes(f)) s = f.stretchOf(world.focusPart);
+  else world.focus = null;
+  world.stretch = s;
+}
+
+/* =====================================================================
+ *  Marching cubes over a metaball field
+ * ===================================================================== */
+const ISO = 0.25;
+const KR = 1 / Math.sqrt(1 - Math.cbrt(ISO)); // kernel radius per unit of visual radius
+const KR2 = KR * KR;
+const CELL = 0.034;
+const MAX_POINTS = 160000;
+const TRI_SRC = ',083,019,183981,12a,08312a,92a029,2832a8a98,3b2,0b28b0,19023b,1b219b98b,3a1ba3,0a108a8ba,3903b9ba9,98aa8b,478,430734,019847,419471731,12a847,34730412a,92a902847,2a9297273794,8473b2,b47b24204,90184723b,47b94b9b2921,3a13ba784,1ba14b1047b4,47890b9bab03,47b4b99ba,954,954083,054150,854835315,12a954,30812a495,52a542402,2a5325354348,95423b,0b208b495,05401523b,21525828b485,a3ba13954,4950818a18ba,54050b5bab03,54858aa8b,978579,930953573,078017157,153357,978957a12,a12950530573,802825857a52,2a5253357,7957893b2,95797292027b,23b018178157,b21b17715,958857a13a3b,5705097b010aba0,ba0b03a50807570,ba57b5,a65,0835a6,9015a6,1831985a6,165261,165126308,965906026,598582526328,23ba65,b08b20a65,01923b5a6,5a61929b298b,63b653513,08b0b50515b6,3b6036065059,65969bb98,5a6478,43047365a,1905a6847,a65197173794,612651478,125526304347,847905065026,739794329596269,3b2784a65,5a647242027b,01947823b5a6,9219b294b7b45a6,8473b53515b6,51b5b610b7b404b,059065036b63847,65969b4797b9,a4964a,4a649a083,a01a60640,83181686461a,149124264,308129249264,024426,832824426,a49a64b23,08228b49a4a6,3b201606461a,64161a48121b8b1,964936913b63,8b1810b61914641,3b6360064,648b68,7a678a89a,0730a709a67a,a671a7178180,a67a71173,126168189867,269291679093739,780706602,732672,23ba68a89867,20727b09767a9a7,1801781a767a23b,b21b17a61671,896867916b63136,091b67,7807063b0b60,7b6,76b,308b76,019b76,819831b76,a126b7,12a3086b7,2902a96b7,6b72a3a83a98,723627,708760620,276237019,162186198876,a76a17137,a7617a187108,03707a0a96a7,76a7a88a9,684b86,36b306046,86b846901,946963931b36,6846b82a1,12a30b06b046,4b846b0292a9,a93a32943b36463,823842462,042462,190234246438,194142246,8138618466a1,a10a06604,4634386a3039a93,a946a4,49576b,083495b76,50154076b,b76834354315,954a1276b,6b712a083495,76b54a42a402,348354325a52b76,723762549,954086062687,362376150540,628687218485158,954a16176137,16a176107870954,40a4a503a6a737a,76a7a854a48a,6956b9b89,36b063056095,0b805b01556b,6b3635531,12a95b9b8b56,0b306b09656912a,b85b56805a52025,6b36352a3a53,589528562382,956960062,158180568382628,156216,13616a386569896,a10a06950560,03856a,a56,b5a75b,b5ab75830,5b75ab190,a75ab7981831,b12b71751,08312717572b,9759279022b7,75272b592328982,25a235375,820852875a25,9015a35373a2,982921872a25752,135375,087071175,903935537,987597,5845a8ab8,5045b05abb30,01984a8aba45,ab4a45b34941314,2512852b8458,04b0b345b2b151b,0250592b5458b85,9452b3,25a352345384,5a2524420,3a235a385458019,5a2524192942,845853351,045105,845853905035,945,4b749b9ab,0834979b79ab,1ab1b414074b,3143481a474bab4,4b79b492b912,9749b791b2b1083,b74b42240,b74b42834324,29a279237749,9a7974a27870207,37a3a274a1a040a,1a2874,491417713,491417081871,403743,487,9a8ab8,30939bb9a,01a0a88ab,31ab3a,12b1b99b8,30939b1292b9,02b80b,32b,23828aa89,9a2092,23828a0181a8,1a2,138918,091,038,';
+const TRI_OFF = new Int32Array(257);
+const TRI_DATA = (() => {
+  const rows = TRI_SRC.split(','), out = [];
+  for (let i = 0; i < 256; i++) { TRI_OFF[i] = out.length; for (const ch of rows[i]) out.push(parseInt(ch, 16)); }
+  TRI_OFF[256] = out.length;
+  return Int8Array.from(out);
+})();
+// edge e runs from corner (dx,dy,dz) along axis ax (0 x, 1 y, 2 z)
+const E_DX = [0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0];
+const E_DY = [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1];
+const E_DZ = [0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0];
+const E_AX = [0, 1, 0, 1, 0, 1, 0, 1, 2, 2, 2, 2];
+
+class Mesher {
+  constructor() {
+    this.cap = 0; this.gen = 0;
+    this.ells = []; this.caps = []; this.ne = 0; this.nc = 0;
+    this.ensure(60000);
+  }
+  ensure(n) {
+    if (n <= this.cap) return;
+    this.cap = n;
+    this.field = new Float32Array(n);
+    this.cGen = new Int32Array(n * 3);
+    this.cIdx = new Int32Array(n * 3);
+    this.gen = 0;
+  }
+  begin() { this.ne = 0; this.nc = 0; }
+  /* Ellipsoid with matrix M·diag(ex,ey,ez) (M = rotation·squash). Stores the inverse
+   * quadratic form so the splat is a handful of multiply-adds per grid point. */
+  addEllipsoid(cx, cy, cz, M, ex, ey, ez) {
+    const e = this.ells[this.ne] || (this.ells[this.ne] = { Q: new Float64Array(6), E: new Float64Array(9) });
+    this.ne++;
+    const W = _m9c;
+    W[0] = M[0] * ex; W[1] = M[1] * ey; W[2] = M[2] * ez;
+    W[3] = M[3] * ex; W[4] = M[4] * ey; W[5] = M[5] * ez;
+    W[6] = M[6] * ex; W[7] = M[7] * ey; W[8] = M[8] * ez;
+    const E = e.E; // E = W·Wᵀ
+    for (let r = 0; r < 3; r++) for (let c = r; c < 3; c++) {
+      const v = W[3 * r] * W[3 * c] + W[3 * r + 1] * W[3 * c + 1] + W[3 * r + 2] * W[3 * c + 2];
+      E[3 * r + c] = v; E[3 * c + r] = v;
+    }
+    inv3(E, _m9b);
+    const Q = e.Q, s = 1 / KR2;
+    Q[0] = _m9b[0] * s; Q[1] = _m9b[4] * s; Q[2] = _m9b[8] * s; Q[3] = _m9b[1] * s; Q[4] = _m9b[2] * s; Q[5] = _m9b[5] * s;
+    e.cx = cx; e.cy = cy; e.cz = cz;
+    e.hx = KR * Math.sqrt(E[0]); e.hy = KR * Math.sqrt(E[4]); e.hz = KR * Math.sqrt(E[8]);
+  }
+  addCapsule(ax, ay, az, bx, by, bz, ra, rb) {
+    const c = this.caps[this.nc] || (this.caps[this.nc] = {});
+    this.nc++;
+    c.ax = ax; c.ay = ay; c.az = az; c.bx = bx; c.by = by; c.bz = bz; c.ra = ra; c.rb = rb;
+  }
+
+  /* Build the field on a grid snapped to the bear's own frame and polygonise it.
+   * Returns null if the output buffers are too small. */
+  polygonize(pos, nrm, idx, capV, capI) {
+    let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+    for (let k = 0; k < this.ne; k++) {
+      const e = this.ells[k];
+      x0 = Math.min(x0, e.cx - e.hx); x1 = Math.max(x1, e.cx + e.hx);
+      y0 = Math.min(y0, e.cy - e.hy); y1 = Math.max(y1, e.cy + e.hy);
+      z0 = Math.min(z0, e.cz - e.hz); z1 = Math.max(z1, e.cz + e.hz);
+    }
+    for (let k = 0; k < this.nc; k++) {
+      const c = this.caps[k], R = KR * Math.max(c.ra, c.rb);
+      x0 = Math.min(x0, c.ax - R, c.bx - R); x1 = Math.max(x1, c.ax + R, c.bx + R);
+      y0 = Math.min(y0, c.ay - R, c.by - R); y1 = Math.max(y1, c.ay + R, c.by + R);
+      z0 = Math.min(z0, c.az - R, c.bz - R); z1 = Math.max(z1, c.az + R, c.bz + R);
+    }
+    let h = CELL;
+    let nx, ny, nz, ox, oy, oz;
+    for (;;) {
+      ox = (Math.floor(x0 / h) - 2) * h; oy = (Math.floor(y0 / h) - 2) * h; oz = (Math.floor(z0 / h) - 2) * h;
+      nx = Math.ceil((x1 - ox) / h) + 3; ny = Math.ceil((y1 - oy) / h) + 3; nz = Math.ceil((z1 - oz) / h) + 3;
+      if (nx * ny * nz <= MAX_POINTS) break;
+      h *= 1.15; // enormous stretch: trade a little resolution for speed
+    }
+    const npts = nx * ny * nz, nxy = nx * ny;
+    this.ensure(npts);
+    const F = this.field;
+    F.fill(0, 0, npts);
+    this.h = h;
+
+    // --- splat ellipsoids, row by row, only over the x-span inside the kernel
+    for (let k = 0; k < this.ne; k++) {
+      const e = this.ells[k], Q = e.Q, qxx = Q[0], qyy = Q[1], qzz = Q[2], qxy = Q[3], qxz = Q[4], qyz = Q[5];
+      const ia = Math.max(0, Math.floor((e.cx - e.hx - ox) / h)), ib = Math.min(nx - 1, Math.ceil((e.cx + e.hx - ox) / h));
+      const ja = Math.max(0, Math.floor((e.cy - e.hy - oy) / h)), jb = Math.min(ny - 1, Math.ceil((e.cy + e.hy - oy) / h));
+      const ka = Math.max(0, Math.floor((e.cz - e.hz - oz) / h)), kb = Math.min(nz - 1, Math.ceil((e.cz + e.hz - oz) / h));
+      for (let kk = ka; kk <= kb; kk++) {
+        const pz = oz + kk * h - e.cz;
+        for (let j = ja; j <= jb; j++) {
+          const py = oy + j * h - e.cy;
+          const Bc = qxy * py + qxz * pz, Cc = qyy * py * py + qzz * pz * pz + 2 * qyz * py * pz;
+          const disc = Bc * Bc - qxx * (Cc - 1);
+          if (disc <= 0) continue;
+          const sq = Math.sqrt(disc);
+          const i0 = Math.max(ia, Math.ceil((e.cx + (-Bc - sq) / qxx - ox) / h));
+          const i1 = Math.min(ib, Math.floor((e.cx + (-Bc + sq) / qxx - ox) / h));
+          const row = j * nx + kk * nxy;
+          for (let i = i0; i <= i1; i++) {
+            const px = ox + i * h - e.cx;
+            const s2 = (qxx * px + 2 * Bc) * px + Cc;
+            if (s2 < 1) { const t = 1 - s2; F[row + i] += t * t * t; }
+          }
+        }
+      }
+    }
+    // --- splat tapered capsules (strands)
+    for (let k = 0; k < this.nc; k++) {
+      const c = this.caps[k];
+      const abx = c.bx - c.ax, aby = c.by - c.ay, abz = c.bz - c.az, L2 = abx * abx + aby * aby + abz * abz;
+      const iL2 = L2 > 1e-10 ? 1 / L2 : 0, R = KR * Math.max(c.ra, c.rb), dr = c.rb - c.ra;
+      const ia = Math.max(0, Math.floor((Math.min(c.ax, c.bx) - R - ox) / h)), ib = Math.min(nx - 1, Math.ceil((Math.max(c.ax, c.bx) + R - ox) / h));
+      const ja = Math.max(0, Math.floor((Math.min(c.ay, c.by) - R - oy) / h)), jb = Math.min(ny - 1, Math.ceil((Math.max(c.ay, c.by) + R - oy) / h));
+      const ka = Math.max(0, Math.floor((Math.min(c.az, c.bz) - R - oz) / h)), kb = Math.min(nz - 1, Math.ceil((Math.max(c.az, c.bz) + R - oz) / h));
+      for (let kk = ka; kk <= kb; kk++) {
+        const pz = oz + kk * h - c.az;
+        for (let j = ja; j <= jb; j++) {
+          const py = oy + j * h - c.ay, dyz = py * aby + pz * abz, row = j * nx + kk * nxy;
+          for (let i = ia; i <= ib; i++) {
+            const px = ox + i * h - c.ax;
+            let t = (px * abx + dyz) * iL2;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            const qx = px - t * abx, qy = py - t * aby, qz = pz - t * abz;
+            const r = (c.ra + dr * t) * KR;
+            const s2 = (qx * qx + qy * qy + qz * qz) / (r * r);
+            if (s2 < 1) { const u = 1 - s2; F[row + i] += u * u * u; }
+          }
+        }
+      }
+    }
+
+    // --- marching cubes with shared vertices and gradient normals
+    if (++this.gen > 2e9) { this.gen = 1; this.cGen.fill(0); }
+    const gen = this.gen, cGen = this.cGen, cIdx = this.cIdx;
+    const eOff = this._eOff || (this._eOff = new Int32Array(12));
+    for (let e = 0; e < 12; e++) eOff[e] = E_DX[e] + E_DY[e] * nx + E_DZ[e] * nxy;
+    const step = [1, nx, nxy];
+    let nv = 0, ni = 0;
+    for (let k = 0; k < nz - 1; k++) {
+      for (let j = 0; j < ny - 1; j++) {
+        let p0 = j * nx + k * nxy;
+        for (let i = 0; i < nx - 1; i++, p0++) {
+          const p3 = p0 + nx, p4 = p0 + nxy, p7 = p4 + nx;
+          let ci = 0;
+          if (F[p0] < ISO) ci |= 1;
+          if (F[p0 + 1] < ISO) ci |= 2;
+          if (F[p3 + 1] < ISO) ci |= 4;
+          if (F[p3] < ISO) ci |= 8;
+          if (F[p4] < ISO) ci |= 16;
+          if (F[p4 + 1] < ISO) ci |= 32;
+          if (F[p7 + 1] < ISO) ci |= 64;
+          if (F[p7] < ISO) ci |= 128;
+          if (ci === 0 || ci === 255) continue;
+          const t0 = TRI_OFF[ci], t1 = TRI_OFF[ci + 1];
+          if (ni + 15 > capI || nv + 12 > capV) return null;
+          for (let t = t0; t < t1; t++) {
+            const e = TRI_DATA[t], bp = p0 + eOff[e], key = bp * 3 + E_AX[e];
+            let vi;
+            if (cGen[key] === gen) vi = cIdx[key];
+            else {
+              vi = nv++;
+              cGen[key] = gen; cIdx[key] = vi;
+              const ax = E_AX[e], q = bp + step[ax];
+              const f0 = F[bp], f1 = F[q];
+              const s = (ISO - f0) / (f1 - f0);
+              const gi = i + E_DX[e], gj = j + E_DY[e], gk = k + E_DZ[e];
+              const v3 = vi * 3;
+              pos[v3] = ox + (gi + (ax === 0 ? s : 0)) * h;
+              pos[v3 + 1] = oy + (gj + (ax === 1 ? s : 0)) * h;
+              pos[v3 + 2] = oz + (gk + (ax === 2 ? s : 0)) * h;
+              // central-difference gradients at both ends, blended along the edge
+              const gx = lerp(F[bp + 1] - F[bp - 1], F[q + 1] - F[q - 1], s);
+              const gy = lerp(F[bp + nx] - F[bp - nx], F[q + nx] - F[q - nx], s);
+              const gz = lerp(F[bp + nxy] - F[bp - nxy], F[q + nxy] - F[q - nxy], s);
+              const l = -1 / (Math.hypot(gx, gy, gz) || 1);
+              nrm[v3] = gx * l; nrm[v3 + 1] = gy * l; nrm[v3 + 2] = gz * l;
+            }
+            idx[ni++] = vi;
+          }
+        }
+      }
+    }
+    return { nv, ni };
+  }
+}
+const mesher = new Mesher();
+
+/* =====================================================================
+ *  Rendering
+ * ===================================================================== */
+const canvas = document.getElementById('scene');
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+} catch (err) {
+  document.querySelector('.loading').textContent = 'WebGL is unavailable — the bears cannot set.';
+  throw err;
+}
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+renderer.setPixelRatio(DPR);
+renderer.setSize(innerWidth, innerHeight, false);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.setClearColor(0xffffff, 1);
+renderer.toneMappingExposure = 1.22;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 200);
+
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 1.0;
+scene.environmentRotation.set(0, 0.5, 0);
+
+const keyLight = new THREE.DirectionalLight(0xffffff, 2.6);
+keyLight.position.set(-3, 8, 4.5);
+const rimLight = new THREE.DirectionalLight(0xfff0de, 3.4);
+rimLight.position.set(3.5, 4.2, -6);
+scene.add(keyLight, rimLight, new THREE.HemisphereLight(0xffffff, 0xeeeae4, 0.35));
+
+/* --- coloured soft shadows: blobs splatted top-down into a texture the table reads */
+const SHADOW_RECT = { x0: -10, z0: -8, w: 20, d: 14 };
+const SH_DIR = [0.30, -0.42]; // ground offset per unit of height, away from the key light
+const shadowRT = new THREE.WebGLRenderTarget(1024, 720, { type: THREE.HalfFloatType, depthBuffer: false });
+shadowRT.texture.generateMipmaps = false;
+const shadowScene = new THREE.Scene();
+const shadowCam = new THREE.OrthographicCamera(-SHADOW_RECT.w / 2, SHADOW_RECT.w / 2, SHADOW_RECT.d / 2, -SHADOW_RECT.d / 2, 0.1, 50);
+shadowCam.up.set(0, 0, -1);
+shadowCam.position.set(SHADOW_RECT.x0 + SHADOW_RECT.w / 2, 20, SHADOW_RECT.z0 + SHADOW_RECT.d / 2);
+shadowCam.lookAt(SHADOW_RECT.x0 + SHADOW_RECT.w / 2, 0, SHADOW_RECT.z0 + SHADOW_RECT.d / 2);
+const MAX_BLOBS = 64 * 24;
+const blobGeo = new THREE.InstancedBufferGeometry();
+blobGeo.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
+blobGeo.setIndex([0, 1, 2, 0, 2, 3]);
+const blobA = new THREE.InstancedBufferAttribute(new Float32Array(MAX_BLOBS * 4), 4).setUsage(THREE.DynamicDrawUsage);
+const blobT = new THREE.InstancedBufferAttribute(new Float32Array(MAX_BLOBS * 3), 3).setUsage(THREE.DynamicDrawUsage);
+blobGeo.setAttribute('aBlob', blobA);
+blobGeo.setAttribute('aTint', blobT);
+blobGeo.instanceCount = 0;
+const blobMat = new THREE.ShaderMaterial({
+  vertexShader: /* glsl */`
+    attribute vec4 aBlob; attribute vec3 aTint;
+    varying vec2 vUv; varying vec3 vTint; varying float vS;
+    void main() {
+      vUv = position.xy; vTint = aTint; vS = aBlob.w;
+      vec3 w = vec3(aBlob.x + position.x * aBlob.z, 0.0, aBlob.y + position.y * aBlob.z);
+      gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);
+    }`,
+  fragmentShader: /* glsl */`
+    varying vec2 vUv; varying vec3 vTint; varying float vS;
+    void main() {
+      float d2 = dot(vUv, vUv);
+      if (d2 > 1.0) discard;
+      float k = exp(-3.2 * d2) * (1.0 - d2);
+      gl_FragColor = vec4(mix(vec3(1.0), vTint, clamp(vS * k, 0.0, 1.0)), 1.0);
+    }`,
+  blending: THREE.CustomBlending, blendEquation: THREE.MinEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+  depthTest: false, depthWrite: false, side: THREE.DoubleSide,
+});
+const blobMesh = new THREE.Mesh(blobGeo, blobMat);
+blobMesh.frustumCulled = false;
+shadowScene.add(blobMesh);
+
+/* --- the table: endless white, multiplied by the shadow texture. It is not tone
+ * mapped, so it matches the page exactly; the backdrop copy also applies the jelly
+ * absorption so refraction through the bears picks up their colour. */
+const ABS_SCALE = DPR > 1.5 ? 0.5 : 0.7;
+const absorbRT = new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType, depthBuffer: false });
+absorbRT.texture.generateMipmaps = false;
+const backdropRT = new THREE.WebGLRenderTarget(2, 2, {
+  type: THREE.HalfFloatType, depthBuffer: false, generateMipmaps: true,
+  minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter,
+});
+const TABLE_WHITE = 0.915; // linear; ≈ #f5f5f4 on screen
+const tableMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uShadow: { value: shadowRT.texture },
+    uRect: { value: new THREE.Vector4(SHADOW_RECT.x0, SHADOW_RECT.z0 + SHADOW_RECT.d, SHADOW_RECT.w, SHADOW_RECT.d) },
+    uBase: { value: TABLE_WHITE },
+    uCenter: { value: new THREE.Vector2(0, 0) },
+    uAbsorb: { value: absorbRT.texture },
+    uUseAbsorb: { value: 0 },
+    uAbsorbRes: { value: new THREE.Vector2(1, 1) },
+  },
+  vertexShader: /* glsl */`
+    varying vec3 vWorld;
+    void main() { vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+  fragmentShader: /* glsl */`
+    uniform sampler2D uShadow, uAbsorb; uniform vec4 uRect; uniform float uBase, uUseAbsorb; uniform vec2 uCenter, uAbsorbRes;
+    varying vec3 vWorld;
+    void main() {
+      vec2 uv = vec2((vWorld.x - uRect.x) / uRect.z, (uRect.y - vWorld.z) / uRect.w);
+      vec3 sh = vec3(1.0);
+      if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) sh = texture2D(uShadow, uv).rgb;
+      float r = length((vWorld.xz - uCenter) * vec2(0.75, 1.0));
+      float shade = 1.0 - 0.05 * smoothstep(4.0, 18.0, r);
+      vec3 col = vec3(uBase * shade) * sh;
+      if (uUseAbsorb > 0.5) col *= exp(-max(texture2D(uAbsorb, gl_FragCoord.xy / uAbsorbRes).rgb, 0.0));
+      gl_FragColor = vec4(col, 1.0);
+      #include <colorspace_fragment>
+    }`,
+  toneMapped: false,
+});
+const tableGeo = new THREE.PlaneGeometry(160, 160);
+const table = new THREE.Mesh(tableGeo, tableMat);
+table.rotation.x = -Math.PI / 2;
+table.renderOrder = -10;
+scene.add(table);
+
+const backdropScene = new THREE.Scene();
+const backdropMat = new THREE.ShaderMaterial({
+  uniforms: { ...tableMat.uniforms, uUseAbsorb: { value: 1 }, uAbsorbRes: { value: new THREE.Vector2(1, 1) } },
+  vertexShader: tableMat.vertexShader, fragmentShader: tableMat.fragmentShader, toneMapped: false,
+});
+const backdropTable = new THREE.Mesh(tableGeo, backdropMat);
+backdropTable.rotation.x = -Math.PI / 2;
+backdropScene.add(backdropTable);
+
+/* Absorption pass: every bear is drawn double-sided with additive blending, writing
+ * −σ·z on front faces and +σ·z on back faces. The sum is σ × (total jelly thickness
+ * along each view ray), exact for any number of overlapping bears and any order. */
+const absorbScene = new THREE.Scene();
+const absorbBase = new THREE.ShaderMaterial({
+  uniforms: { uSigma: { value: new THREE.Vector3() }, uZRef: { value: 10 } },
+  vertexShader: /* glsl */`
+    varying float vZ;
+    void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); vZ = -mv.z; gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: /* glsl */`
+    uniform vec3 uSigma; uniform float uZRef; varying float vZ;
+    void main() { gl_FragColor = vec4((gl_FrontFacing ? -1.0 : 1.0) * uSigma * (vZ - uZRef), 1.0); }`,
+  side: THREE.DoubleSide, depthWrite: false, depthTest: false,
+  blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+});
+
+/* --- gummy material: glossy clear-coated jelly. The physical material supplies the
+ * clearcoat, specular and environment reflections; the body is replaced by a refracted,
+ * roughness-blurred lookup into the absorbing backdrop. */
+const GUMMY = {
+  uBackdrop: { value: backdropRT.texture },
+  uBackdropSize: { value: new THREE.Vector2(2, 2) },
+  uIor: { value: 1.38 },
+  uThick: { value: 0.3 },
+  uBlur: { value: 0.16 },
+  uGlow: { value: 0.0 },
+};
+function gummyCompile(shader) {
+  Object.assign(shader.uniforms, GUMMY);
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vGWorld;')
+    .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvGWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', `#include <common>
+      varying vec3 vGWorld;
+      uniform mat4 projectionMatrix;
+      uniform sampler2D uBackdrop; uniform vec2 uBackdropSize; uniform float uIor, uThick, uBlur, uGlow;`)
+    .replace('#include <transmission_fragment>', `{
+      vec3 gv = normalize(cameraPosition - vGWorld);
+      vec3 gn = normalize(inverseTransformDirection(normal, viewMatrix));
+      vec3 exitP = vGWorld + refract(-gv, gn, 1.0 / uIor) * uThick;
+      vec4 clip = projectionMatrix * viewMatrix * vec4(exitP, 1.0);
+      vec2 suv = clip.xy / clip.w * 0.5 + 0.5;
+      float lod = log2(max(uBackdropSize.x, 1.0)) * uBlur;
+      vec3 seen = textureLod(uBackdrop, suv, lod).rgb;
+      float f0 = pow((uIor - 1.0) / (uIor + 1.0), 2.0);
+      float fr = f0 + (1.0 - f0) * pow(1.0 - clamp(dot(gn, gv), 0.0, 1.0), 5.0);
+      totalDiffuse = (1.0 - fr) * seen + totalDiffuse * uGlow;
+    }`);
+}
+const gummyMats = FLAVORS.map(() => {
+  const m = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff, roughness: 0.22, metalness: 0, ior: 1.38, specularIntensity: 1,
+    clearcoat: 1, clearcoatRoughness: 0.035, envMapIntensity: 1.15,
+  });
+  m.onBeforeCompile = gummyCompile;
+  return m;
+});
+
+function makeGeometry(capV, capT) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(capV * 3), 3).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(capV * 3), 3).setUsage(THREE.DynamicDrawUsage));
+  g.setIndex(new THREE.BufferAttribute(new Uint32Array(capT * 3), 1).setUsage(THREE.DynamicDrawUsage));
+  g.setDrawRange(0, 0);
+  g.userData.capV = capV; g.userData.capT = capT;
+  return g;
+}
+
+function attachRender(b) {
+  const geo = makeGeometry(9000, 17000);
+  b.mesh = new THREE.Mesh(geo, gummyMats[b.flavor]);
+  b.mesh.frustumCulled = false;
+  b.absorbMat = absorbBase.clone();
+  b.absorbMat.uniforms.uSigma.value.fromArray(FLAVORS[b.flavor].sigma);
+  b.proxy = new THREE.Mesh(geo, b.absorbMat);
+  b.proxy.frustumCulled = false;
+  scene.add(b.mesh);
+  absorbScene.add(b.proxy);
+  b.meshed = false;
+}
+
+function remesh(b) {
+  b.gather(mesher);
+  for (;;) {
+    const g = b.mesh.geometry, P = g.attributes.position, Nn = g.attributes.normal, I = g.index;
+    const res = mesher.polygonize(P.array, Nn.array, I.array, g.userData.capV, g.userData.capT * 3);
+    if (res) {
+      P.clearUpdateRanges(); P.addUpdateRange(0, res.nv * 3); P.needsUpdate = true;
+      Nn.clearUpdateRanges(); Nn.addUpdateRange(0, res.nv * 3); Nn.needsUpdate = true;
+      I.clearUpdateRanges(); I.addUpdateRange(0, res.ni); I.needsUpdate = true;
+      g.setDrawRange(0, res.ni);
+      b.meshStats = res;
+      break;
+    }
+    const ng = makeGeometry(Math.ceil(g.userData.capV * 1.6), Math.ceil(g.userData.capT * 1.6));
+    b.mesh.geometry = ng; b.proxy.geometry = ng;
+    g.dispose();
+  }
+  b.meshed = true;
+}
+
+function removeBear(b) {
+  const k = world.bears.indexOf(b);
+  if (k >= 0) world.bears.splice(k, 1);
+  scene.remove(b.mesh);
+  absorbScene.remove(b.proxy);
+  b.mesh.geometry.dispose();
+  b.absorbMat.dispose();
+  if (world.focus === b) world.focus = null;
+  if (drag && drag.bear === b) endDrag(false);
+}
+
+const _v3 = new THREE.Vector3();
+function updateRenderables() {
+  camera.updateMatrixWorld();
+  const view = camera.matrixWorldInverse.elements;
+  let nb = 0;
+  const A = blobA.array, T = blobT.array;
+  for (const b of world.bears) {
+    const c = b.cl[2].c, q = b.cl[2].quat;
+    b.mesh.position.set(c[0], c[1], c[2]); b.mesh.quaternion.set(q[0], q[1], q[2], q[3]);
+    b.proxy.position.copy(b.mesh.position); b.proxy.quaternion.copy(b.mesh.quaternion);
+    b.absorbMat.uniforms.uZRef.value = -(view[2] * c[0] + view[6] * c[1] + view[10] * c[2] + view[14]);
+    // shadow blobs
+    const X = b.x, tint = FLAVORS[b.flavor].shade, sc = b.scale;
+    const put = (x, z, r, s, t) => {
+      if (nb >= MAX_BLOBS) return;
+      A[4 * nb] = x; A[4 * nb + 1] = z; A[4 * nb + 2] = r; A[4 * nb + 3] = s;
+      T[3 * nb] = t[0]; T[3 * nb + 1] = t[1]; T[3 * nb + 2] = t[2]; nb++;
+    };
+    for (let i = 0; i < N; i++) {
+      const y = X[3 * i + 1], hgt = Math.max(0, y - b.rg[i]);
+      const big = i === HEAD || i === CHEST || i === BELLY;
+      put(X[3 * i] + SH_DIR[0] * y, X[3 * i + 2] + SH_DIR[1] * y, b.rc[i] * (1.6 + 0.7 * hgt) + 0.08 * sc,
+        (big ? 1.0 : 0.7) * Math.exp(-1.1 * hgt) * sc, tint);
+    }
+    for (const s of STRANDS) {
+      const a3 = 3 * s.a, b3 = 3 * s.b;
+      const mx = (X[a3] + X[b3]) / 2, my = (X[a3 + 1] + X[b3 + 1]) / 2, mz = (X[a3 + 2] + X[b3 + 2]) / 2;
+      const L = Math.hypot(X[b3] - X[a3], X[b3 + 1] - X[a3 + 1], X[b3 + 2] - X[a3 + 2]);
+      const rest = Math.hypot(REST[b3] - REST[a3], REST[b3 + 1] - REST[a3 + 1], REST[b3 + 2] - REST[a3 + 2]);
+      const r = Math.max(0.04, s.ra * Math.sqrt(rest / Math.max(L, 1e-3))) * sc;
+      put(mx + SH_DIR[0] * my, mz + SH_DIR[1] * my, r * 1.9 + 0.06, 0.62 * Math.exp(-1.1 * my), tint);
+    }
+    // soft contact occlusion right under the body
+    const cy = c[1], lift = Math.max(0, cy - 0.38);
+    put(c[0] + SH_DIR[0] * 0.1, c[2] + SH_DIR[1] * 0.1 + 0.03, (0.42 + 0.3 * lift) * sc,
+      0.75 * Math.exp(-2.2 * lift) * sc, [tint[0] * 0.62, tint[1] * 0.62, tint[2] * 0.66]);
+  }
+  blobGeo.instanceCount = nb;
+  blobA.clearUpdateRanges(); blobA.addUpdateRange(0, nb * 4); blobA.needsUpdate = true;
+  blobT.clearUpdateRanges(); blobT.addUpdateRange(0, nb * 3); blobT.needsUpdate = true;
+}
+
+function render() {
+  updateRenderables();
+  renderer.setRenderTarget(shadowRT);
+  renderer.setClearColor(0xffffff, 1);
+  renderer.clear();
+  renderer.render(shadowScene, shadowCam);
+  renderer.setRenderTarget(absorbRT);
+  renderer.setClearColor(0x000000, 0);
+  renderer.render(absorbScene, camera);
+  renderer.setRenderTarget(backdropRT);
+  renderer.setClearColor(0xffffff, 1);
+  renderer.render(backdropScene, camera);
+  renderer.setRenderTarget(null);
+  renderer.render(scene, camera);
+}
+function sizeBuffers() {
+  const w = renderer.domElement.width, h = renderer.domElement.height;
+  const bw = Math.max(2, Math.round(w * ABS_SCALE)), bh = Math.max(2, Math.round(h * ABS_SCALE));
+  absorbRT.setSize(bw, bh);
+  backdropRT.setSize(bw, bh);
+  backdropMat.uniforms.uAbsorbRes.value.set(bw, bh);
+  GUMMY.uBackdropSize.value.set(bw, bh);
+}
+
+/* =====================================================================
+ *  Camera framing & play-area bounds (keep the bears out from under the card)
+ * ===================================================================== */
+const cardEl = document.getElementById('card');
+const _ray = new THREE.Raycaster();
+const _ndc = new THREE.Vector2();
+function screenToPlane(px, py, y, out = new THREE.Vector3()) {
+  _ndc.set(px / innerWidth * 2 - 1, -(py / innerHeight) * 2 + 1);
+  _ray.setFromCamera(_ndc, camera);
+  const o = _ray.ray.origin, d = _ray.ray.direction;
+  const t = (y - o.y) / (d.y || -1e-6);
+  return out.copy(o).addScaledVector(d, t);
+}
+function layout() {
+  const w = innerWidth, h = innerHeight, aspect = w / h;
+  renderer.setSize(w, h, false);
+  sizeBuffers();
+  camera.aspect = aspect;
+  const mobile = w < 760;
+  camera.fov = mobile ? 34 : 30;
+  const dist = 8.4 * clamp(1.55 / aspect, 1, 2.4);
+  const pitch = mobile ? 0.5 : 0.42;
+  const shift = mobile ? 0 : clamp(dist * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * aspect * 0.12, 0, 1.4);
+  const target = new THREE.Vector3(shift, mobile ? 1.55 : 1.4, 0.35);
+  camera.position.set(target.x, target.y + Math.sin(pitch) * dist, target.z + Math.cos(pitch) * dist);
+  camera.lookAt(target);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld();
+  const card = cardEl.getBoundingClientRect();
+  const left = w * 0.03 + 6, right = mobile ? w * 0.97 - 6 : card.left - 18;
+  const top = h * (mobile ? 0.36 : 0.5), bottom = mobile ? card.top - 8 : h * 0.97;
+  const Y = 0.3;
+  const tl = screenToPlane(left, top, Y), tr = screenToPlane(right, top, Y);
+  const bl = screenToPlane(left, bottom, Y), br = screenToPlane(right, bottom, Y);
+  const bd = world.bounds;
+  bd.zBack = Math.max(tl.z, tr.z, -5);
+  bd.zFront = Math.min(bl.z, br.z, 3.6);
+  if (bd.zFront - bd.zBack < 2.2) bd.zFront = bd.zBack + 2.2;
+  bd.lB = (bl.x - tl.x) / (bl.z - tl.z); bd.lA = tl.x - bd.lB * tl.z;
+  bd.rB = (br.x - tr.x) / (br.z - tr.z); bd.rA = tr.x - bd.rB * tr.z;
+  bd.cz = (bd.zBack + bd.zFront) / 2;
+  bd.cx = (bd.lA + bd.lB * bd.cz + bd.rA + bd.rB * bd.cz) / 2;
+  tableMat.uniforms.uCenter.value.set(bd.cx, bd.cz);
+  // nudge anything now outside back in
+  for (const b of world.bears) b.wake();
+}
+
+/* =====================================================================
+ *  Spawning & pouring
+ * ===================================================================== */
+function randomQuat() {
+  const u1 = rand(), u2 = rand() * TAU, u3 = rand() * TAU;
+  const a = Math.sqrt(1 - u1), c = Math.sqrt(u1);
+  return [a * Math.sin(u2), a * Math.cos(u2), c * Math.sin(u3), c * Math.cos(u3)];
+}
+function yawQuat(yaw) { return [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)]; }
+
+function spawnBear(flavor, pos, quat, vel = [0, 0, 0], spin = [0, 0, 0]) {
+  const live = world.bears.filter(b => b.despawn < 0);
+  if (live.length >= MAX_BEARS) {
+    const old = live.find(b => b.grab < 0);
+    if (old) { old.despawn = 0; old.wake(); }
+  }
+  const b = new Bear(flavor, pos, quat);
+  for (let i = 0; i < N; i++) {
+    const rx = b.x[3 * i] - pos[0], ry = b.x[3 * i + 1] - pos[1], rz = b.x[3 * i + 2] - pos[2];
+    b.v[3 * i] = vel[0] + spin[1] * rz - spin[2] * ry;
+    b.v[3 * i + 1] = vel[1] + spin[2] * rx - spin[0] * rz;
+    b.v[3 * i + 2] = vel[2] + spin[0] * ry - spin[1] * rx;
+  }
+  attachRender(b);
+  world.bears.push(b);
+  return b;
+}
+
+function dropBear(flavor, delay = 0) {
+  const bd = world.bounds;
+  world.queue.push({
+    at: world.time + delay,
+    fn: () => {
+      const z = rr(bd.zBack + 0.7, Math.min(bd.zFront - 0.7, bd.zBack + 2.6));
+      const xl = bd.lA + bd.lB * z + 0.7, xr = bd.rA + bd.rB * z - 0.7;
+      const x = clamp(lerp(bd.cx - 1.6, bd.cx + 1.6, rand()), xl, xr);
+      spawnBear(flavor, [x, rr(5.6, 7.2), z], randomQuat(), [rr(-0.6, 0.6), -rr(1.5, 3.5), rr(-0.4, 0.4)],
+        [rr(-4, 4), rr(-4, 4), rr(-4, 4)]);
+    },
+  });
+}
+
+function pour(n = 6) {
+  for (let k = 0; k < n; k++) dropBear(Math.floor(rand() * FLAVORS.length), k * 0.11);
+}
+
+function initialBears() {
+  const bd = world.bounds;
+  const z = clamp(bd.cz + 0.25, bd.zBack + 0.8, bd.zFront - 0.8);
+  const xl = bd.lA + bd.lB * z + 0.8, xr = bd.rA + bd.rB * z - 0.8;
+  const span = Math.min(xr - xl, 5.2), x0 = (xl + xr) / 2 - span / 2;
+  for (let k = 0; k < FLAVORS.length; k++) {
+    const x = x0 + span * (k / (FLAVORS.length - 1));
+    const zz = z + (k % 2 ? -0.35 : 0.1);
+    spawnBear(k, [x, REST_COM[1] + 0.35 + 0.1 * k, zz], yawQuat(rr(-0.35, 0.35) - (x - world.bounds.cx) * 0.06));
+  }
+}
+
+/* =====================================================================
+ *  Pointer: pick, drag on a camera-facing plane, throw on release
+ * ===================================================================== */
+const cursorEl = document.getElementById('cursor');
+let drag = null;
+let pointer = { x: -100, y: -100, inside: false, fine: matchMedia('(pointer: fine)').matches };
+if (!pointer.fine) document.body.classList.add('no-fine-pointer');
+
+function pick(px, py) {
+  _ndc.set(px / innerWidth * 2 - 1, -(py / innerHeight) * 2 + 1);
+  _ray.setFromCamera(_ndc, camera);
+  const o = _ray.ray.origin, d = _ray.ray.direction;
+  let best = null;
+  const test = (b, part, cx, cy, cz, r) => {
+    const ox = o.x - cx, oy = o.y - cy, oz = o.z - cz;
+    const bq = ox * d.x + oy * d.y + oz * d.z, cq = ox * ox + oy * oy + oz * oz - r * r;
+    const disc = bq * bq - cq;
+    if (disc < 0) return;
+    let t = -bq - Math.sqrt(disc);
+    if (t < 0) t = -bq + Math.sqrt(disc);
+    if (t < 0) return;
+    if (!best || t < best.t) best = { b, part, t };
+  };
+  for (const b of world.bears) {
+    if (b.despawn >= 0) continue;
+    const X = b.x;
+    for (let i = 0; i < N; i++) {
+      const p = PARTS[i];
+      test(b, i, X[3 * i], X[3 * i + 1], X[3 * i + 2], p.r * Math.max(...p.ell) * b.scale * 1.12 + (p.pick - 1) * 0.04);
+    }
+    for (const s of STRANDS) {
+      for (let k = 1; k <= 3; k++) {
+        const t = k / 4, a3 = 3 * s.a, b3 = 3 * s.b;
+        test(b, t < 0.5 ? s.a : s.b, lerp(X[a3], X[b3], t), lerp(X[a3 + 1], X[b3 + 1], t), lerp(X[a3 + 2], X[b3 + 2], t), 0.07);
+      }
+    }
+  }
+  return best;
+}
+
+function beginDrag(b, part, px, py) {
+  const X = b.x, i3 = 3 * part;
+  const p = new THREE.Vector3(X[i3], X[i3 + 1], X[i3 + 2]);
+  const n = new THREE.Vector3(); camera.getWorldDirection(n).negate();
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, p);
+  _ndc.set(px / innerWidth * 2 - 1, -(py / innerHeight) * 2 + 1);
+  _ray.setFromCamera(_ndc, camera);
+  const hit = _ray.ray.intersectPlane(plane, new THREE.Vector3()) || p.clone();
+  drag = { bear: b, part, plane, offset: p.clone().sub(hit), hist: [], target: p.clone() };
+  b.startGrab(part, [p.x, p.y, p.z]);
+  world.focus = b; world.focusPart = part;
+  recordDrag(p);
+}
+function clampTarget(b, part, v) {
+  const bd = world.bounds, rc = b.rc[part];
+  v.y = Math.max(v.y, b.rg[part] * 0.55);
+  v.z = clamp(v.z, bd.zBack + rc, bd.zFront - rc);
+  const xl = bd.lA + bd.lB * v.z + rc, xr = bd.rA + bd.rB * v.z - rc;
+  v.x = clamp(v.x, xl, Math.max(xl, xr));
+  v.y = Math.min(v.y, 7);
+  return v;
+}
+function recordDrag(p) {
+  const now = performance.now();
+  drag.hist.push({ t: now, x: p.x, y: p.y, z: p.z });
+  while (drag.hist.length > 2 && now - drag.hist[0].t > 110) drag.hist.shift();
+}
+function moveDrag(px, py) {
+  _ndc.set(px / innerWidth * 2 - 1, -(py / innerHeight) * 2 + 1);
+  _ray.setFromCamera(_ndc, camera);
+  const hit = _ray.ray.intersectPlane(drag.plane, new THREE.Vector3());
+  if (!hit) return;
+  const t = clampTarget(drag.bear, drag.part, hit.add(drag.offset));
+  drag.target.copy(t);
+  drag.bear.target[0] = t.x; drag.bear.target[1] = t.y; drag.bear.target[2] = t.z;
+  recordDrag(t);
+}
+function endDrag(throwIt = true) {
+  if (!drag) return;
+  const b = drag.bear;
+  let vel = [0, 0, 0];
+  if (throwIt && drag.hist.length >= 2) {
+    const now = performance.now();
+    const h = drag.hist.filter(e => now - e.t < 110);
+    if (h.length >= 2) {
+      const a = h[0], z = h[h.length - 1], dt = Math.max(0.016, (z.t - a.t) / 1000);
+      if (now - z.t < 80) vel = [(z.x - a.x) / dt, (z.y - a.y) / dt, (z.z - a.z) / dt];
+    }
+  }
+  b.release(vel);
+  drag = null;
+  cursorEl.classList.remove('grab');
+}
+
+canvas.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || drag) return;
+  pointer.x = e.clientX; pointer.y = e.clientY;
+  const hit = pick(e.clientX, e.clientY);
+  if (!hit) return;
+  canvas.setPointerCapture(e.pointerId);
+  beginDrag(hit.b, hit.part, e.clientX, e.clientY);
+  cursorEl.classList.add('grab');
+});
+canvas.addEventListener('pointermove', e => {
+  pointer.x = e.clientX; pointer.y = e.clientY; pointer.inside = true;
+  if (e.pointerType !== 'touch') {
+    cursorEl.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0)`;
+    cursorEl.classList.add('on');
+  }
+  if (drag) moveDrag(e.clientX, e.clientY);
+  else if (e.pointerType !== 'touch') cursorEl.classList.toggle('hover', !!pick(e.clientX, e.clientY));
+});
+const finish = e => { if (drag) endDrag(e.type === 'pointerup'); };
+canvas.addEventListener('pointerup', finish);
+canvas.addEventListener('pointercancel', finish);
+canvas.addEventListener('lostpointercapture', finish);
+canvas.addEventListener('pointerleave', () => { if (!drag) cursorEl.classList.remove('on', 'hover'); });
+window.addEventListener('blur', () => endDrag(false));
+
+/* =====================================================================
+ *  Card UI
+ * ===================================================================== */
+const swatchesEl = document.getElementById('swatches');
+FLAVORS.forEach((f, k) => {
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'sw';
+  btn.style.setProperty('--c', f.swatch); btn.style.setProperty('--d', f.deep);
+  btn.setAttribute('aria-label', `Drop a ${f.name.toLowerCase()} bear`);
+  btn.innerHTML = `<i></i><span>${f.name}</span>`;
+  btn.addEventListener('click', () => dropBear(k));
+  swatchesEl.appendChild(btn);
+});
+const wobbleEl = document.getElementById('wobble'), wobbleOut = document.getElementById('wobbleOut');
+const WOBBLE_WORDS = ['Firm', 'Springy', 'Bouncy', 'Jiggly', 'Wobbly', 'Molten'];
+function applyWobble() {
+  const v = Number(wobbleEl.value), w = v / 100;
+  world.stiffMul = lerp(1.9, 0.5, w);
+  world.damp = lerp(11, 1.5, w);
+  world.bounceMul = lerp(0.75, 1.22, w);
+  wobbleEl.style.setProperty('--p', `${v}%`);
+  wobbleOut.textContent = WOBBLE_WORDS[Math.min(WOBBLE_WORDS.length - 1, Math.floor(w * WOBBLE_WORDS.length))];
+  for (const b of world.bears) b.wake();
+}
+wobbleEl.addEventListener('input', applyWobble);
+applyWobble();
+document.getElementById('pour').addEventListener('click', () => pour(6));
+
+const stretchEl = document.getElementById('stretch'), bouncesEl = document.getElementById('bounces');
+let shownStretch = -1, shownBounces = -1, stretchSmooth = 1;
+function updateUI(dt) {
+  stretchSmooth += (world.stretch - stretchSmooth) * Math.min(1, dt * 18);
+  const s = Math.round(stretchSmooth * 100);
+  if (s !== shownStretch) { shownStretch = s; stretchEl.innerHTML = `${s}<small>%</small>`; }
+  if (world.bounces !== shownBounces) { shownBounces = world.bounces; bouncesEl.textContent = String(world.bounces); }
+}
+
+/* =====================================================================
+ *  Main loop
+ * ===================================================================== */
+const timings = { physics: 0, mesh: 0, render: 0, frame: 0, fps: 60, meshed: 0 };
+const MESH_BUDGET_MS = 9;
+function remeshAll() {
+  const t0 = performance.now();
+  const list = world.bears.filter(b => !b.sleeping || !b.meshed);
+  list.sort((a, b) => (b.grab >= 0) - (a.grab >= 0) || (a.lastMeshT || 0) - (b.lastMeshT || 0));
+  let n = 0;
+  for (const b of list) {
+    if (b.meshed && n >= 3 && performance.now() - t0 > MESH_BUDGET_MS) break;
+    remesh(b); b.lastMeshT = world.time; n++;
+  }
+  timings.meshed = n;
+  return performance.now() - t0;
+}
+const ease = (a, b) => a + (b - a) * 0.1;
+function advance(dt) {
+  const t0 = performance.now();
+  physics(dt);
+  frameUpdate(dt);
+  timings.physics = ease(timings.physics, performance.now() - t0);
+}
+function draw(dt) {
+  timings.mesh = ease(timings.mesh, remeshAll());
+  const t1 = performance.now();
+  render();
+  timings.render = ease(timings.render, performance.now() - t1);
+  updateUI(dt);
+}
+
+let manual = QS.has('manual');
+let last = performance.now();
+function tick(now) {
+  requestAnimationFrame(tick);
+  const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
+  last = now;
+  if (dt > 0) timings.fps = ease(timings.fps, 1 / dt);
+  if (manual) return;
+  const t0 = performance.now();
+  advance(dt);
+  draw(dt);
+  timings.frame = ease(timings.frame, performance.now() - t0);
+}
+
+window.addEventListener('resize', layout);
+layout();
+initialBears();
+draw(0);
+document.body.classList.add('ready');
+requestAnimationFrame(tick);
+
+/* =====================================================================
+ *  Test hooks (used by the automated checks; harmless otherwise)
+ * ===================================================================== */
+window.__gummy = {
+  THREE, world, camera, renderer, timings, PARTS, STRANDS, N,
+  setManual(v) { manual = !!v; },
+  step(frames = 1, dt = 1 / 60, doDraw = false) {
+    for (let k = 0; k < frames; k++) { advance(dt); if (doDraw) draw(dt); }
+  },
+  draw() { draw(1 / 60); },
+  pour, dropBear, spawnBear, layout,
+  setHops(v) { world.hops = !!v; },
+  setWobble(v) { wobbleEl.value = v; applyWobble(); },
+  grab(bi, part) {
+    const b = world.bears[bi]; const X = b.x;
+    b.startGrab(part, [X[3 * part], X[3 * part + 1], X[3 * part + 2]]);
+    world.focus = b; world.focusPart = part;
+  },
+  moveTo(bi, x, y, z) {
+    const b = world.bears[bi]; const v = clampTarget(b, b.grab, new THREE.Vector3(x, y, z));
+    b.target[0] = v.x; b.target[1] = v.y; b.target[2] = v.z;
+  },
+  release(bi, vx = 0, vy = 0, vz = 0) { world.bears[bi].release([vx, vy, vz]); },
+  project(x, y, z) { const v = new THREE.Vector3(x, y, z).project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight]; },
+  bear(bi) {
+    const b = world.bears[bi];
+    return {
+      id: b.id, flavor: b.flavor, com: b.centerOfMass([0, 0, 0]), sy: b.sy, sleeping: b.sleeping, grounded: b.grounded,
+      grab: b.grab, hop: b.hop.phase, x: Array.from(b.x), v: Array.from(b.v), up: [b.cl[2].R[1], b.cl[2].R[4], b.cl[2].R[7]],
+      stretch: world.focus === b ? world.stretch : null,
+    };
+  },
+  minGap() { // most negative (gap) between contact spheres of different bears
+    let g = Infinity, B = world.bears;
+    for (let p = 0; p < B.length; p++) for (let q = p + 1; q < B.length; q++) for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+      const a = B[p], c = B[q];
+      const d = Math.hypot(a.x[3 * i] - c.x[3 * j], a.x[3 * i + 1] - c.x[3 * j + 1], a.x[3 * i + 2] - c.x[3 * j + 2]) - a.rc[i] - c.rc[j];
+      if (d < g) g = d;
+    }
+    return g;
+  },
+  meshInfo(bi) {
+    const b = world.bears[bi]; remesh(b);
+    const g = b.mesh.geometry, P = g.attributes.position.array, I = g.index.array, n = b.meshStats.ni;
+    let vol = 0, area = 0;
+    for (let t = 0; t < n; t += 3) {
+      const a = 3 * I[t], c = 3 * I[t + 1], d = 3 * I[t + 2];
+      const ax = P[a], ay = P[a + 1], az = P[a + 2], bx = P[c], by = P[c + 1], bz = P[c + 2], cx = P[d], cy = P[d + 1], cz = P[d + 2];
+      vol += (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6;
+      const ux = bx - ax, uy = by - ay, uz = bz - az, vx = cx - ax, vy = cy - ay, vz = cz - az;
+      area += Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
+    }
+    return { verts: b.meshStats.nv, tris: n / 3, volume: vol, area };
+  },
+};
+</script>
+</body>
+</html>
