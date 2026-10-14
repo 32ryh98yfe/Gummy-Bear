@@ -414,6 +414,7 @@ const REST_REACH = PARTS.map((p, i) => {
   PARTS.forEach((q, j) => { if (j !== i) { m += q.m; for (let a = 0; a < 3; a++) c[a] += q.pos[a] * q.m; } });
   return Math.hypot(p.pos[0] - c[0] / m, p.pos[1] - c[1] / m, p.pos[2] - c[2] / m);
 });
+const SAG_LIFT = 0.1, SAG_STIFF = 1.03; // see CLUSTER_DEFS / Bear.sag (sag ∝ 1 / stiffness)
 const CLUSTER_DEFS = CLUSTERS.map(c => {
   const n = c.idx.length, m = new Float64Array(n), q = new Float64Array(n * 3);
   let M = 0; const c0 = [0, 0, 0];
@@ -425,8 +426,29 @@ const CLUSTER_DEFS = CLUSTERS.map(c => {
     for (let r = 0; r < 3; r++) for (let s = 0; s < 3; s++) Aqq[3 * r + s] += m[k] * q[3 * k + r] * q[3 * k + s];
   });
   const AqqInv = new Float64Array(9); inv3(Aqq, AqqInv);
-  return { idx: Int32Array.from(c.idx), m, M, q, AqqInv, k: c.k, beta: c.beta };
+  // Sag compensation: jelly sags under its own weight, so a sitting bear matches a rest
+  // shape whose upper body is pre-lifted above the belly (which rests on the table).
+  // Zero-mean per cluster so it adds no net force.
+  const dq = new Float64Array(n);
+  let mean = 0;
+  c.idx.forEach((i, k) => { dq[k] = SAG_LIFT * Math.max(0, REST[3 * i + 1] - PARTS[BELLY].pos[1]); mean += m[k] * dq[k]; });
+  mean /= M;
+  const AqqS = new Float64Array(9);
+  c.idx.forEach((i, k) => {
+    dq[k] -= mean;
+    const v = [q[3 * k], q[3 * k + 1] + dq[k], q[3 * k + 2]];
+    for (let r = 0; r < 3; r++) for (let s = 0; s < 3; s++) AqqS[3 * r + s] += m[k] * v[r] * v[s];
+  });
+  const AqqInvS = new Float64Array(9); inv3(AqqS, AqqInvS);
+  return { idx: Int32Array.from(c.idx), m, M, q, AqqInv, dq, AqqInvS, k: c.k, beta: c.beta };
 });
+
+// vertical stretch that best fits the whole-body sag pre-lift (for drawing, see updateShape)
+const SAG_FIT = (() => {
+  const d = CLUSTER_DEFS[2]; let a = 0, b = 0;
+  for (let k = 0; k < d.idx.length; k++) { const qy = d.q[3 * k + 1]; a += d.m[k] * d.dq[k] * qy; b += d.m[k] * qy * qy; }
+  return a / b;
+})();
 
 /* =====================================================================
  *  Physics constants
@@ -440,6 +462,11 @@ const WALL_E = 0.45;
 const ADH_K = 1100, ADH_BREAK = 0.14, ADH_SLIDE2 = 0.24 * 0.24;
 const LAUNCH_GAIN = 12;
 const FLAT_K = 140, FLAT_D = 7;
+const PIN_W = 3;                // extra weight of a held point in the rigid reference used for damping
+const HELD_DAMP = 1.6;          // a held bear's wobble settles a bit faster (it's in your hand)
+const AIR_K = 110, AIR_D = 21;  // self-righting in the air after a hop / rebound (critically damped)
+const HEAD_HOLD = 900;          // neck stiffness keeping a held head turned like the body
+const PRESS_MIN = 0.38;         // deepest pancake (height fraction) when you press a bear down
 const SLEEP_V2 = 0.07 * 0.07;
 const MAX_BEARS = 30;
 
@@ -456,7 +483,7 @@ const world = {
 /* =====================================================================
  *  Soft-body bear
  * ===================================================================== */
-const _m9a = new Float64Array(9), _m9b = new Float64Array(9), _m9c = new Float64Array(9);
+const _m9a = new Float64Array(9), _m9b = new Float64Array(9), _m9c = new Float64Array(9), _m9s = new Float64Array(9);
 let bearSerial = 0;
 // layout of Bear.sp, the local-frame shape parameters: [part positions | head RS | torso RS | scale]
 const SP_RS = N * 3, SP_SC = SP_RS + 18, SP_LEN = SP_SC + 1;
@@ -467,6 +494,7 @@ class Bear {
     this.flavor = flavor;
     this.x = new Float64Array(N * 3);
     this.v = new Float64Array(N * 3);
+    this.px = new Float64Array(N * 3); // positions at the previous sub-step (sleep test)
     this.rg = new Float64Array(N);   // support radius toward the table (orientation + squash aware)
     this.rc = new Float64Array(N);   // contact radius against other bears
     this.contact = new Uint8Array(N);
@@ -484,15 +512,18 @@ class Bear {
     this.S = new Float64Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
     this.sy = 1;
     this.pose = [1, 1, 1]; this.pressC = 1;
+    this.pressable = false; this.pressFloor = 0; this.selfRight = 0;
+    this.sag = clamp((R[4] - 0.5) / 0.35, 0, 1) * SAG_STIFF / world.stiffMul; // sag-compensation weight, see updateBehaviour
     this.grab = -1; this.target = [0, 0, 0]; this.adh = null;
     this.sleeping = false; this.sleepT = 0;
     this.airT = 1; this.grounded = false; this.touching = false; this.impact = 0;
     this.hop = { phase: 'idle', t: 0, timer: rr(1.2, 5.5) };
-    this.reb = { armed: false, min: 1, start: 1, t: 0, bonus: 0 };
+    this.reb = { armed: false, ready: true, min: 1, start: 1, t: 0, bonus: 0 };
     this.scale = 1; this.despawn = -1; this.born = world.time;
     this.aabb = new Float64Array(6);
     this.com = [pos[0], pos[1], pos[2]];
     this.wRig = [0, 0, 0];
+    this.px.set(this.x);
     this.solveClusters();
     this.updateShape();
   }
@@ -503,9 +534,9 @@ class Bear {
 
   solveClusters() {
     const X = this.x, px = this.pose[0], py = this.pose[1], pz = this.pose[2];
-    const ipx = 1 / px, ipy = 1 / py, ipz = 1 / pz;
+    const ipx = 1 / px, ipy = 1 / py, ipz = 1 / pz, sw = this.sag;
     for (let ci = 0; ci < 3; ci++) {
-      const d = CLUSTER_DEFS[ci], st = this.cl[ci], idx = d.idx, m = d.m, q = d.q, n = idx.length;
+      const d = CLUSTER_DEFS[ci], st = this.cl[ci], idx = d.idx, m = d.m, q = d.q, dq = d.dq, n = idx.length;
       let cx = 0, cy = 0, cz = 0;
       for (let k = 0; k < n; k++) { const i3 = idx[k] * 3, mk = m[k]; cx += mk * X[i3]; cy += mk * X[i3 + 1]; cz += mk * X[i3 + 2]; }
       cx /= d.M; cy /= d.M; cz /= d.M;
@@ -513,14 +544,16 @@ class Bear {
       for (let k = 0; k < n; k++) {
         const i3 = idx[k] * 3, mk = m[k];
         const dx = (X[i3] - cx) * mk, dy = (X[i3 + 1] - cy) * mk, dz = (X[i3 + 2] - cz) * mk;
-        const qx = q[3 * k] * px, qy = q[3 * k + 1] * py, qz = q[3 * k + 2] * pz;
+        const qx = q[3 * k] * px, qy = (q[3 * k + 1] + sw * dq[k]) * py, qz = q[3 * k + 2] * pz;
         a00 += dx * qx; a01 += dx * qy; a02 += dx * qz;
         a10 += dy * qx; a11 += dy * qy; a12 += dy * qz;
         a20 += dz * qx; a21 += dz * qy; a22 += dz * qz;
       }
       const Apq = st.Apq;
       Apq[0] = a00; Apq[1] = a01; Apq[2] = a02; Apq[3] = a10; Apq[4] = a11; Apq[5] = a12; Apq[6] = a20; Apq[7] = a21; Apq[8] = a22;
-      const R = st.R, A = st.A, T = st.T, I = d.AqqInv;
+      const R = st.R, A = st.A, T = st.T;
+      let I = d.AqqInv;
+      if (sw > 0.001) { I = _m9s; for (let e = 0; e < 9; e++) I[e] = d.AqqInv[e] + (d.AqqInvS[e] - d.AqqInv[e]) * sw; }
       extractRotation(Apq, st.quat, R, 3);
       // linear best fit A = Apq · (P Aqq Pᵀ)⁻¹ for the posed rest shape
       for (let r = 0; r < 3; r++) {
@@ -544,7 +577,7 @@ class Bear {
       st.c[0] = cx; st.c[1] = cy; st.c[2] = cz;
       const g = st.g;
       for (let k = 0; k < n; k++) {
-        const qx = q[3 * k] * px, qy = q[3 * k + 1] * py, qz = q[3 * k + 2] * pz;
+        const qx = q[3 * k] * px, qy = (q[3 * k + 1] + sw * dq[k]) * py, qz = q[3 * k + 2] * pz;
         g[3 * k] = cx + T[0] * qx + T[1] * qy + T[2] * qz;
         g[3 * k + 1] = cy + T[3] * qx + T[4] * qy + T[5] * qz;
         g[3 * k + 2] = cz + T[6] * qx + T[7] * qy + T[8] * qz;
@@ -568,6 +601,19 @@ class Bear {
         V[i3 + 2] += (g[3 * kk + 2] - X[i3 + 2]) * k;
       }
     }
+    // held by the head: a pinched point lets the head pivot, and the snout-heavy head
+    // would nod face-down; a little neck stiffness keeps it turned like the body
+    if (gi === HEAD) {
+      const R = this.cl[2].R, k = HEAD_HOLD * km, g3 = 3 * gi;
+      for (const i of CLUSTERS[0].idx) {
+        if (i === gi) continue;
+        const i3 = 3 * i, P = this.pose;
+        const qx = (REST[i3] - REST[g3]) * P[0], qy = (REST[i3 + 1] - REST[g3 + 1]) * P[1], qz = (REST[i3 + 2] - REST[g3 + 2]) * P[2];
+        V[i3] += (X[g3] + R[0] * qx + R[1] * qy + R[2] * qz - X[i3]) * k;
+        V[i3 + 1] += (X[g3 + 1] + R[3] * qx + R[4] * qy + R[5] * qz - X[i3 + 1]) * k;
+        V[i3 + 2] += (X[g3 + 2] + R[6] * qx + R[7] * qy + R[8] * qz - X[i3 + 2]) * k;
+      }
+    }
     this.dampToRigid(h);
     // flat base keeps the bear sitting; while you press down on it, it keeps it from
     // tipping so the push turns into squash (and sideways bulge) instead
@@ -585,28 +631,40 @@ class Bear {
         }
       }
       const i3 = 3 * gi, f = (1 - Math.exp(-h / 0.016)) / h;
+      // a pressed bear flattens to a pancake but no further: the held part stops at the
+      // pancake's top instead of being driven down through the jelly (which tips it over)
+      const ty = this.pressable ? Math.max(this.target[1], this.pressFloor) : this.target[1];
       V[i3] = (this.target[0] - X[i3]) * f;
-      V[i3 + 1] = (this.target[1] - X[i3 + 1]) * f;
+      V[i3 + 1] = (ty - X[i3 + 1]) * f;
       V[i3 + 2] = (this.target[2] - X[i3 + 2]) * f;
-    }
+    } else if (this.selfRight > 0 && !this.grounded) this.airRight(h);
     for (let i = 0; i < 3 * N; i++) X[i] += V[i] * h;
   }
 
   /* Damp deformation velocities only: blend each point toward the rigid motion
    * (linear + angular) of the whole bear so flight and spin are preserved. */
   dampToRigid(h) {
-    const X = this.x, V = this.v;
+    const X = this.x, V = this.v, gi = this.grab;
+    // While held, the rigid reference is (mostly) pinned to the grabbed point, so the
+    // body hanging or trailing from your cursor settles with a damped wobble instead of
+    // yo-yoing around a centre of mass that the kinematic point keeps re-centring.
+    const W = this._w || (this._w = new Float64Array(N));
+    let M = 0, mx = 0, my = 0, mz = 0;
+    for (let i = 0; i < N; i++) {
+      W[i] = MASS[i] + (i === gi ? PIN_W * TOTAL_MASS : 0); M += W[i];
+      mx += MASS[i] * X[3 * i]; my += MASS[i] * X[3 * i + 1]; mz += MASS[i] * X[3 * i + 2];
+    }
     let cx = 0, cy = 0, cz = 0, vx = 0, vy = 0, vz = 0;
     for (let i = 0; i < N; i++) {
-      const m = MASS[i], i3 = 3 * i;
+      const m = W[i], i3 = 3 * i;
       cx += m * X[i3]; cy += m * X[i3 + 1]; cz += m * X[i3 + 2];
       vx += m * V[i3]; vy += m * V[i3 + 1]; vz += m * V[i3 + 2];
     }
-    const iM = 1 / TOTAL_MASS;
+    const iM = 1 / M;
     cx *= iM; cy *= iM; cz *= iM; vx *= iM; vy *= iM; vz *= iM;
     let Lx = 0, Ly = 0, Lz = 0, I00 = 0, I01 = 0, I02 = 0, I11 = 0, I12 = 0, I22 = 0;
     for (let i = 0; i < N; i++) {
-      const m = MASS[i], i3 = 3 * i;
+      const m = W[i], i3 = 3 * i;
       const rx = X[i3] - cx, ry = X[i3 + 1] - cy, rz = X[i3 + 2] - cz;
       const ux = V[i3] - vx, uy = V[i3 + 1] - vy, uz = V[i3 + 2] - vz;
       Lx += m * (ry * uz - rz * uy); Ly += m * (rz * ux - rx * uz); Lz += m * (rx * uy - ry * ux);
@@ -620,7 +678,7 @@ class Bear {
       const J = _m9b;
       wx = J[0] * Lx + J[1] * Ly + J[2] * Lz; wy = J[3] * Lx + J[4] * Ly + J[5] * Lz; wz = J[6] * Lx + J[7] * Ly + J[8] * Lz;
     }
-    const f = 1 - Math.exp(-world.damp * h), air = 1 - 0.1 * h, gi = this.grab;
+    const f = 1 - Math.exp(-(gi >= 0 ? Math.max(world.damp * HELD_DAMP, 4) : world.damp) * h), air = 1 - 0.1 * h;
     for (let i = 0; i < N; i++) {
       if (i === gi) continue;
       const i3 = 3 * i, rx = X[i3] - cx, ry = X[i3 + 1] - cy, rz = X[i3 + 2] - cz;
@@ -629,7 +687,8 @@ class Bear {
       V[i3 + 1] = (V[i3 + 1] + (ty - V[i3 + 1]) * f) * air;
       V[i3 + 2] = (V[i3 + 2] + (tz - V[i3 + 2]) * f) * air;
     }
-    this.com[0] = cx; this.com[1] = cy; this.com[2] = cz;
+    const iT = 1 / TOTAL_MASS;
+    this.com[0] = mx * iT; this.com[1] = my * iT; this.com[2] = mz * iT;
     this.wRig[0] = wx; this.wRig[1] = wy; this.wRig[2] = wz;
   }
 
@@ -644,6 +703,22 @@ class Bear {
     const wx = this.wRig[0], wz = this.wRig[2];
     const ang = Math.atan2(s, uy), k = s > 1e-6 ? FLAT_K * ang / s : 0;
     const dwx = (ax * k - wx * FLAT_D) * h, dwz = (az * k - wz * FLAT_D) * h;
+    for (let i = 0; i < N; i++) {
+      const i3 = 3 * i, rx = X[i3] - c[0], ry = X[i3 + 1] - c[1], rz = X[i3 + 2] - c[2];
+      V[i3] += -dwz * ry; V[i3 + 1] += dwz * rx - dwx * rz; V[i3 + 2] += dwx * ry;
+    }
+  }
+
+  /* After a hop or a rebound the bear rights itself in the air (critically damped
+   * tilt control about the centre of mass; yaw spin is left alone) so it lands on
+   * its feet instead of tumbling. Thrown bears don't get this. */
+  airRight(h) {
+    const R = this.cl[2].R, ux = R[1], uy = R[4], uz = R[7];
+    let ax = -uz, az = ux, s = Math.hypot(ax, az);
+    if (s < 1e-4) { ax = R[0]; az = R[6]; s = Math.hypot(ax, az) || 1; } // upside down: any horizontal axis
+    const ang = Math.atan2(Math.hypot(ux, uz), uy), k = AIR_K * ang / s;
+    const X = this.x, V = this.v, c = this.com, wx = this.wRig[0], wz = this.wRig[2];
+    const dwx = (ax * k - wx * AIR_D) * h, dwz = (az * k - wz * AIR_D) * h;
     for (let i = 0; i < N; i++) {
       const i3 = 3 * i, rx = X[i3] - c[0], ry = X[i3 + 1] - c[1], rz = X[i3 + 2] - c[2];
       V[i3] += -dwz * ry; V[i3 + 1] += dwz * rx - dwx * rz; V[i3 + 2] += dwx * ry;
@@ -671,6 +746,14 @@ class Bear {
     const ux = R[3], uy = R[4], uz = R[5]; // world up expressed in the bear's rest frame
     let sx = S[0] * ux + S[1] * uy + S[2] * uz, sy = S[3] * ux + S[4] * uy + S[5] * uz, sz = S[6] * ux + S[7] * uy + S[8] * uz;
     this.sy = ux * sx + uy * sy + uz * sz;
+    // the sag pre-lift is part of the target shape, not a squash: draw the moulded shape
+    // (S <- D^1/2 S D^1/2 with D the volume-preserving linear part of the lift)
+    if (this.sag > 1e-3) {
+      const lam = 1 + this.sag * SAG_FIT, a = Math.cbrt(lam), dxz = 1 / Math.sqrt(a), dy = Math.sqrt(lam / a);
+      const d = [dxz, dy, dxz];
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) S[3 * r + c] *= d[r] * d[c];
+      sx = S[0] * ux + S[1] * uy + S[2] * uz; sy = S[3] * ux + S[4] * uy + S[5] * uz; sz = S[6] * ux + S[7] * uy + S[8] * uz;
+    }
     // contact radii follow only part of the squash, so a squashed bear can't sink into the table
     sx = ux + (sx - ux) * 0.45; sy = uy + (sy - uy) * 0.45; sz = uz + (sz - uz) * 0.45;
     const sc = this.scale;
@@ -715,6 +798,7 @@ class Bear {
       V[i3 + 1] += vy * f + (wz * rx - wx * rz);
       V[i3 + 2] += dz * hs + (spin * rx) + (wx * ry);
     }
+    if (right) this.selfRight = 1.6;
     this.wake();
   }
 
@@ -725,20 +809,27 @@ class Bear {
       this.scale = Math.max(0, 1 - smooth(Math.min(1, this.despawn / 0.45)));
       this.wake();
     }
+    this.selfRight = Math.max(0, this.selfRight - dt);
+    // jelly sags a little under its own weight; pre-stretch the rest shape along the
+    // bear's height while it sits up (not while it hangs from your cursor) so it keeps
+    // its moulded proportions
+    const sagTo = clamp((this.cl[2].R[4] - 0.5) / 0.35, 0, 1) * (this.grab >= 0 && !this.grounded ? 0 : 1) * SAG_STIFF / world.stiffMul;
+    this.sag += (sagTo - this.sag) * Math.min(1, dt * 5);
     if (this.grab >= 0 || this.despawn >= 0) {
       hop.phase = 'idle'; hop.timer = Math.max(hop.timer, 1.4);
       let c = 1;
-      if (this.grab >= 0 && this.grounded) {
-        // pressing down: the jelly yields, flattening (and bulging) in proportion
-        const ratio = clamp(this.target[1] / Math.max(0.2, this.grabY0), 0, 1);
-        c = clamp(0.3 + 0.7 * ratio, 0.38, 1);
+      if (this.grab >= 0 && this.pressable) {
+        // pressing down: the jelly yields, flattening (and bulging) in proportion, so that
+        // the held part sits where your finger is, down to a pancake at the press floor
+        const ratio = clamp((this.target[1] - this.pressFloor) / Math.max(0.05, this.grabY0 - this.pressFloor), 0, 1);
+        c = lerp(PRESS_MIN, 1, ratio);
       }
-      this.pressC = lerp(this.pressC, c, Math.min(1, dt * 14));
+      this.pressC = lerp(this.pressC, c, Math.min(1, dt * 20));
       this.setPose(this.pressC);
       reb.armed = false;
     } else {
       if (this.pressC < 0.999) { // let go of a press: the jelly springs back almost at once
-        this.pressC = Math.min(1, lerp(this.pressC, 1, Math.min(1, dt * 30)) + 0.02); this.setPose(this.pressC); this.wake();
+        this.pressC = Math.min(1, lerp(this.pressC, 1, Math.min(1, dt * 16)) + 0.8 * dt); this.setPose(this.pressC); this.wake();
       }
       if (hop.phase === 'idle') {
         if (world.hops && (this.grounded || this.sleeping) && !reb.armed) {
@@ -763,17 +854,22 @@ class Bear {
         if ((hop.t > 0.32 && this.grounded) || hop.t > 3) { hop.phase = 'idle'; hop.timer = rr(2.4, 7.5); this.setPose(1); }
       }
       // Rebound: a hard squash (landing, pancake, snapped-back stretch) launches the bear back up.
-      if (!reb.armed && this.grounded && this.sy < 0.8 && hop.phase === 'idle') {
-        reb.armed = true; reb.min = this.sy; reb.start = 1; reb.t = 0; reb.bonus = 0;
+      // (it re-arms only once the jelly has recovered, so a bear squeezed in a pile doesn't
+      // keep re-arming and never falls asleep)
+      if (this.sy > 0.86) reb.ready = true;
+      if (!reb.armed && reb.ready && this.grounded && this.sy < 0.8 && hop.phase === 'idle') {
+        reb.armed = true; reb.ready = false; reb.min = this.sy; reb.start = 1; reb.t = 0; reb.bonus = 0;
       }
       if (reb.armed) {
         reb.t += dt;
         reb.min = Math.min(reb.min, this.sy);
         const dipped = reb.min < reb.start - 0.035;
-        if ((dipped && this.sy > reb.min + 0.09) || reb.t > 0.6) {
+        // fires as the jelly recovers from the squash, but only with its feet on the table
+        // (a stretch let go of near the table first drops back down, then hops)
+        if ((dipped && this.sy > reb.min + 0.09 && this.grounded) || reb.t > (this.grounded ? 0.6 : 1.2)) {
           reb.armed = false;
           const vy = Math.min(7.5, (Math.max(0, 0.88 - reb.min) * LAUNCH_GAIN + reb.bonus) * world.bounceMul);
-          if (vy > 1.3 && this.grounded) this.launch(vy, rr(0, 0.25), rand() * TAU, rr(-0.7, 0.7), true);
+          if (vy > 1.3 && this.grounded) this.launch(vy, rr(0, 0.25), rand() * TAU, rr(-0.7, 0.7), this.cl[2].R[4] > 0.5);
         }
       }
     }
@@ -784,6 +880,13 @@ class Bear {
     this.grab = i;
     this.grabY0 = this.x[3 * i + 1];
     this.target[0] = target[0]; this.target[1] = target[1]; this.target[2] = target[2];
+    this.selfRight = 0;
+    // pressing on the head / upper body of a bear sitting on its feet pancakes it
+    let low = Infinity;
+    for (let j = 0; j < N; j++) low = Math.min(low, this.x[3 * j + 1]);
+    this.pressable = this.grounded && this.cl[2].R[4] > 0.6 && this.grabY0 - low > 0.12 &&
+      (PARTS[i].own === 0 || i === CHEST || i === BELLY);
+    this.pressFloor = low + (this.grabY0 - low) * PRESS_MIN;
     this.adh = [];
     for (let j = 0; j < N; j++) {
       if (j === i) continue;
@@ -812,15 +915,21 @@ class Bear {
     if (world.focus === this && world.stretch > 1.3 && sp < 6) {
       const reb = this.reb;
       reb.armed = true; reb.min = this.sy; reb.start = this.sy; reb.t = 0;
-      reb.bonus = Math.min(3.4, 1.8 * (world.stretch - 1));
+      reb.bonus = Math.min(3.4, 3 * (world.stretch - 1));
     }
+    // let go gently (a pancake, a stretch, a dangling bear): it lands on its feet.
+    // Thrown bears tumble freely.
+    this.selfRight = sp < 3 && this.cl[2].R[4] > 0.3 ? 1.2 : 0;
     this.wake();
   }
 
   stretchOf(i) {
     let m = 0, cx = 0, cy = 0, cz = 0;
     for (let j = 0; j < N; j++) if (j !== i) { m += MASS[j]; cx += MASS[j] * this.x[3 * j]; cy += MASS[j] * this.x[3 * j + 1]; cz += MASS[j] * this.x[3 * j + 2]; }
-    return Math.hypot(this.x[3 * i] - cx / m, this.x[3 * i + 1] - cy / m, this.x[3 * i + 2] - cz / m) / REST_REACH[i];
+    const d = Math.hypot(this.x[3 * i] - cx / m, this.x[3 * i + 1] - cy / m, this.x[3 * i + 2] - cz / m), r0 = REST_REACH[i];
+    // the body point sits almost on the centre of mass of the rest, so measure its pull
+    // against a sensible length instead of dividing by (nearly) zero
+    return 1 + (d - r0) / Math.max(r0, 0.25);
   }
 
   /* Everything the mesh depends on, in the bear's local frame (origin = body centre,
@@ -904,12 +1013,16 @@ function substep(h) {
   collide(h);
   for (const b of B) {
     if (b.sleeping) continue;
+    // sleep test on how far the points actually moved (a point pinned against a
+    // sleeping neighbour can keep a velocity that the contacts cancel every step)
     let ground = false, maxV2 = 0;
+    const X = b.x, P = b.px, ih2 = 1 / (h * h);
     for (let i = 0; i < N; i++) {
       if (b.contact[i]) ground = true;
-      const v2 = b.v[3 * i] ** 2 + b.v[3 * i + 1] ** 2 + b.v[3 * i + 2] ** 2;
+      const i3 = 3 * i, v2 = ((X[i3] - P[i3]) ** 2 + (X[i3 + 1] - P[i3 + 1]) ** 2 + (X[i3 + 2] - P[i3 + 2]) ** 2) * ih2;
       if (i !== b.grab && v2 > maxV2) maxV2 = v2;
     }
+    P.set(X);
     if (ground || b.touching) {
       if (b.airT > 0.12 && b.impact > 1.7 && b.despawn < 0 && world.time > 1.6) world.bounces++;
       b.airT = 0;
@@ -1807,22 +1920,43 @@ function spawnBear(flavor, pos, quat, vel = [0, 0, 0], spin = [0, 0, 0]) {
   return b;
 }
 
-function dropBear(flavor, delay = 0) {
+function dropBear(flavor, delay = 0, heap = null) {
   const bd = world.bounds;
   world.queue.push({
     at: world.time + delay,
     fn: () => {
-      const z = rr(bd.zBack + 0.7, Math.min(bd.zFront - 0.7, bd.zBack + 2.6));
-      const xl = bd.lA + bd.lB * z + 0.7, xr = bd.rA + bd.rB * z - 0.7;
-      const x = clamp(lerp(bd.cx - 1.6, bd.cx + 1.6, rand()), xl, xr);
-      spawnBear(flavor, [x, rr(5.6, 7.2), z], randomQuat(), [rr(-0.6, 0.6), -rr(1.5, 3.5), rr(-0.4, 0.4)],
+      // pick a drop spot clear of the bears still falling, so new bears never start inside each other
+      let best = null;
+      for (let t = 0; t < 12; t++) {
+        let z = rr(bd.zBack + 0.7, Math.min(bd.zFront - 0.7, bd.zBack + 2.6)), x0 = lerp(bd.cx - 1.6, bd.cx + 1.6, rand());
+        if (heap) { // poured bears land on top of each other
+          const a = rand() * TAU, r = 0.6 * Math.sqrt(rand());
+          x0 = heap.x + Math.cos(a) * r; z = clamp(heap.z + Math.sin(a) * r, bd.zBack + 0.7, bd.zFront - 0.7);
+        }
+        const xl = bd.lA + bd.lB * z + 0.7, xr = bd.rA + bd.rB * z - 0.7;
+        const x = clamp(x0, xl, Math.max(xl, xr)), y = rr(5.6, 7.2) + Math.max(0, t - 5) * 0.4; // crowded: start higher
+        let clear = Infinity;
+        for (const o of world.bears) {
+          const c = o.com;
+          if (c[1] > 2.5) clear = Math.min(clear, Math.hypot(c[0] - x, c[1] - y, c[2] - z));
+        }
+        if (!best || clear > best.clear) best = { x, y, z, clear };
+        if (clear > 1.3) break;
+      }
+      const b = spawnBear(flavor, [best.x, best.y, best.z], randomQuat(), [rr(-0.6, 0.6), -rr(1.5, 3.5), rr(-0.4, 0.4)],
         [rr(-4, 4), rr(-4, 4), rr(-4, 4)]);
+      if (heap) b.hop.timer = rr(3.5, 9); // let the heap jiggle a while before anyone climbs out
     },
   });
 }
 
 function pour(n = 6) {
-  for (let k = 0; k < n; k++) dropBear(Math.floor(rand() * FLAVORS.length), k * 0.11);
+  // a handful poured onto one spot of the table, so they land in a jiggling heap
+  const bd = world.bounds;
+  const z = rr(bd.zBack + 1.0, Math.max(bd.zBack + 1.0, Math.min(bd.zFront - 1.0, bd.zBack + 2.4)));
+  const xl = bd.lA + bd.lB * z + 1.0, xr = bd.rA + bd.rB * z - 1.0;
+  const heap = { x: clamp(lerp(bd.cx - 1.3, bd.cx + 1.3, rand()), xl, Math.max(xl, xr)), z };
+  for (let k = 0; k < n; k++) dropBear(Math.floor(rand() * FLAVORS.length), k * 0.13, heap);
 }
 
 function initialBears() {
