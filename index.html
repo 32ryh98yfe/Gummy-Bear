@@ -462,9 +462,11 @@ class Bear {
     this.flavor = flavor;
     this.x = new Float64Array(N * 3);
     this.v = new Float64Array(N * 3);
+    this.xp = new Float64Array(N * 3); // positions at the start of the sub-step (sleep test)
     this.rg = new Float64Array(N);   // support radius toward the table (orientation + squash aware)
     this.rc = new Float64Array(N);   // contact radius against other bears
     this.contact = new Uint8Array(N);
+    this.touch = [];                 // bears touched in the last awake sub-step (what a sleeper rests on)
     const R = new Float64Array(9); quatToMat(quat, R);
     for (let i = 0; i < N; i++) {
       const lx = REST[3 * i] - REST_COM[0], ly = REST[3 * i + 1] - REST_COM[1], lz = REST[3 * i + 2] - REST_COM[2];
@@ -483,7 +485,7 @@ class Bear {
     this.sleeping = false; this.sleepT = 0;
     this.airT = 1; this.grounded = false; this.touching = false; this.impact = 0;
     this.hop = { phase: 'idle', t: 0, timer: rr(1.2, 5.5) };
-    this.reb = { armed: false, min: 1, start: 1, t: 0, bonus: 0 };
+    this.reb = { armed: false, ready: true, min: 1, start: 1, t: 0, bonus: 0 };
     this.scale = 1; this.despawn = -1; this.born = world.time;
     this.aabb = new Float64Array(6);
     this.com = [pos[0], pos[1], pos[2]];
@@ -725,12 +727,17 @@ class Bear {
       let c = 1;
       if (this.grab >= 0 && this.grounded) {
         // pressing down: the jelly yields, flattening (and bulging) in proportion
-        const ratio = clamp(this.target[1] / Math.max(0.2, this.grabY0), 0, 1);
+        // (measured as how far below its grab height the part is pushed, so merely
+        // holding a low part such as a foot does not flatten the bear)
+        const ratio = clamp(1 - (this.grabY0 - this.target[1]) / Math.max(0.2, this.grabY0), 0, 1);
         c = clamp(0.3 + 0.7 * ratio, 0.38, 1);
       }
       this.pressC = lerp(this.pressC, c, Math.min(1, dt * 14));
       this.setPose(this.pressC);
-      reb.armed = false;
+      // despawning: shrink the rest shape along with the radii, so the bear shrinks as a
+      // whole instead of thinning into a stick figure with loose blobs
+      if (this.despawn >= 0) for (let a = 0; a < 3; a++) this.pose[a] *= Math.max(0.05, this.scale);
+      reb.armed = false; reb.ready = true;
     } else {
       if (this.pressC < 0.999) { // let go of a press: the jelly springs back almost at once
         this.pressC = Math.min(1, lerp(this.pressC, 1, Math.min(1, dt * 30)) + 0.02); this.setPose(this.pressC); this.wake();
@@ -758,8 +765,11 @@ class Bear {
         if ((hop.t > 0.32 && this.grounded) || hop.t > 3) { hop.phase = 'idle'; hop.timer = rr(2.4, 7.5); this.setPose(1); }
       }
       // Rebound: a hard squash (landing, pancake, snapped-back stretch) launches the bear back up.
-      if (!reb.armed && this.grounded && this.sy < 0.8 && hop.phase === 'idle') {
-        reb.armed = true; reb.min = this.sy; reb.start = 1; reb.t = 0; reb.bonus = 0;
+      // (edge-triggered: a bear that simply stays squashed - lying sagged on its side or
+      // wedged in a pile - must not re-arm every 0.6 s, which would keep it awake forever)
+      if (this.sy > 0.84) reb.ready = true;
+      if (!reb.armed && reb.ready && this.grounded && this.sy < 0.8 && hop.phase === 'idle') {
+        reb.armed = true; reb.ready = false; reb.min = this.sy; reb.start = 1; reb.t = 0; reb.bonus = 0;
       }
       if (reb.armed) {
         reb.t += dt;
@@ -877,14 +887,18 @@ function physics(dt) {
 function substep(h) {
   world.time += h;
   const B = world.bears;
-  for (const b of B) if (!b.sleeping) b.integrate(h);
+  for (const b of B) if (!b.sleeping) { b.xp.set(b.x); b.integrate(h); }
   collide(h);
   for (const b of B) {
     if (b.sleeping) continue;
+    // sleep on how far the points actually moved, not on their velocity: a bear wedged
+    // against sleeping neighbours keeps a velocity that its contacts cancel every
+    // sub-step, so it stands still yet would never fall asleep
     let ground = false, maxV2 = 0;
+    const X = b.x, XP = b.xp, ih2 = 1 / (h * h);
     for (let i = 0; i < N; i++) {
       if (b.contact[i]) ground = true;
-      const v2 = b.v[3 * i] ** 2 + b.v[3 * i + 1] ** 2 + b.v[3 * i + 2] ** 2;
+      const v2 = ((X[3 * i] - XP[3 * i]) ** 2 + (X[3 * i + 1] - XP[3 * i + 1]) ** 2 + (X[3 * i + 2] - XP[3 * i + 2]) ** 2) * ih2;
       if (i !== b.grab && v2 > maxV2) maxV2 = v2;
     }
     if (ground || b.touching) {
@@ -905,7 +919,7 @@ function collide(h) {
   const lN = 1 / Math.sqrt(1 + bd.lB * bd.lB), rN = 1 / Math.sqrt(1 + bd.rB * bd.rB);
   for (const b of B) {
     if (b.sleeping) continue;
-    b.contact.fill(0); b.touching = false; b.supported = false;
+    b.contact.fill(0); b.touching = false; b.supported = false; b.touch.length = 0;
     const X = b.x, V = b.v, bb = b.aabb;
     bb[0] = bb[1] = bb[2] = Infinity; bb[3] = bb[4] = bb[5] = -Infinity;
     for (let i = 0; i < N; i++) {
@@ -963,6 +977,7 @@ function collide(h) {
 
 function contactPair(A, C, h) {
   const XA = A.x, VA = A.v, XC = C.x, VC = C.v;
+  let hit = false;
   for (let i = 0; i < N; i++) {
     const i3 = 3 * i, ri = A.rc[i];
     for (let j = 0; j < N; j++) {
@@ -984,7 +999,7 @@ function contactPair(A, C, h) {
       const corr = pen / W;
       XA[i3] += dx * corr * wA; XA[i3 + 1] += dy * corr * wA; XA[i3 + 2] += dz * corr * wA;
       XC[j3] -= dx * corr * wC; XC[j3 + 1] -= dy * corr * wC; XC[j3 + 2] -= dz * corr * wC;
-      A.touching = C.touching = true;
+      A.touching = C.touching = true; hit = true;
       if (dy > 0.45) A.supported = true; else if (dy < -0.45) C.supported = true;
       if (vn < 0) {
         if (-vn > A.impact) A.impact = -vn;
@@ -1004,6 +1019,20 @@ function contactPair(A, C, h) {
       }
     }
   }
+  if (hit) {
+    if (!A.sleeping && A.touch.indexOf(C) < 0) A.touch.push(C);
+    if (!C.sleeping && C.touch.indexOf(A) < 0) C.touch.push(A);
+  }
+}
+
+function pointsTouch(A, C, margin) {
+  const XA = A.x, XC = C.x;
+  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+    const r = A.rc[i] + C.rc[j] + margin;
+    const dx = XA[3 * i] - XC[3 * j], dy = XA[3 * i + 1] - XC[3 * j + 1], dz = XA[3 * i + 2] - XC[3 * j + 2];
+    if (dx * dx + dy * dy + dz * dz < r * r) return true;
+  }
+  return false;
 }
 
 function frameUpdate(dt) {
@@ -1019,6 +1048,14 @@ function frameUpdate(dt) {
   for (let k = world.bears.length - 1; k >= 0; k--) {
     const b = world.bears[k];
     if (b.despawn >= 0 && b.scale <= 0.01) removeBear(b);
+  }
+  // a sleeping bear stays put as if glued, so it must wake once something it was resting
+  // on is gone (despawned, pulled away, hopped off) or it would hang in mid-air
+  for (const b of world.bears) {
+    if (!b.sleeping) continue;
+    for (const o of b.touch) {
+      if (o.removed || (!o.sleeping && !pointsTouch(b, o, 0.02))) { b.wake(); break; }
+    }
   }
   // live stretch readout follows the bear you last touched
   const f = world.focus;
@@ -1079,7 +1116,9 @@ class Mesher {
       const v = W[3 * r] * W[3 * c] + W[3 * r + 1] * W[3 * c + 1] + W[3 * r + 2] * W[3 * c + 2];
       E[3 * r + c] = v; E[3 * c + r] = v;
     }
-    inv3(E, _m9b);
+    // det(E) ∝ radius⁶ falls under inv3's 1e-12 cut-off for sub-cell blobs (the eyes of a
+    // bear shrinking away); drop those instead of splatting with a stale inverse
+    if (!inv3(E, _m9b)) { this.ne--; return; }
     const Q = e.Q, s = 1 / KR2;
     Q[0] = _m9b[0] * s; Q[1] = _m9b[4] * s; Q[2] = _m9b[8] * s; Q[3] = _m9b[1] * s; Q[4] = _m9b[2] * s; Q[5] = _m9b[5] * s;
     e.cx = cx; e.cy = cy; e.cz = cz;
@@ -1463,6 +1502,7 @@ function remesh(b) {
 function removeBear(b) {
   const k = world.bears.indexOf(b);
   if (k >= 0) world.bears.splice(k, 1);
+  b.removed = true;
   scene.remove(b.mesh);
   absorbScene.remove(b.proxy);
   b.mesh.geometry.dispose();
@@ -1573,7 +1613,9 @@ function layout() {
   const bl = screenToPlane(left, bottom, Y), br = screenToPlane(right, bottom, Y);
   const bd = world.bounds;
   bd.zBack = Math.max(tl.z, tr.z, -5);
-  bd.zFront = Math.min(bl.z, br.z, 3.6);
+  // front wall from the table plane: feet sit lower on screen than the mid-height plane
+  // and would otherwise be cut off by the bottom of the window (or the mobile card)
+  bd.zFront = Math.min(screenToPlane(left, bottom, 0).z, screenToPlane(right, bottom, 0).z, 3.6);
   if (bd.zFront - bd.zBack < 2.2) bd.zFront = bd.zBack + 2.2;
   bd.lB = (bl.x - tl.x) / (bl.z - tl.z); bd.lA = tl.x - bd.lB * tl.z;
   bd.rB = (br.x - tr.x) / (br.z - tr.z); bd.rA = tr.x - bd.rB * tr.z;
@@ -1743,6 +1785,7 @@ canvas.addEventListener('pointerdown', e => {
   if (!hit) return;
   canvas.setPointerCapture(e.pointerId);
   beginDrag(hit.b, hit.part, e.clientX, e.clientY);
+  drag.pointerId = e.pointerId; // other fingers must not steer or drop this bear
   cursorEl.classList.add('grab');
 });
 canvas.addEventListener('pointermove', e => {
@@ -1751,10 +1794,10 @@ canvas.addEventListener('pointermove', e => {
     cursorEl.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0)`;
     cursorEl.classList.add('on');
   }
-  if (drag) moveDrag(e.clientX, e.clientY);
+  if (drag) { if (e.pointerId === drag.pointerId) moveDrag(e.clientX, e.clientY); }
   else if (e.pointerType !== 'touch') cursorEl.classList.toggle('hover', !!pick(e.clientX, e.clientY));
 });
-const finish = e => { if (drag) endDrag(e.type === 'pointerup'); };
+const finish = e => { if (drag && e.pointerId === drag.pointerId) endDrag(e.type === 'pointerup'); };
 canvas.addEventListener('pointerup', finish);
 canvas.addEventListener('pointercancel', finish);
 canvas.addEventListener('lostpointercapture', finish);
