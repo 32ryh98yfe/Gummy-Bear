@@ -427,10 +427,10 @@ function extractRotation(A, q, R, iters) {
 // `caustic` how brightly it focuses light into its shadow
 const FLAVORS = [
   { name: 'Cherry',    swatch: '#e2223a', deep: '#8e0718', thick: '#c2001e', haze: 1.0, back: 1.2, edge: 0.25, caustic: 0.8 },
-  { name: 'Orange',    swatch: '#ff8a1f', deep: '#c94a00', thick: '#ff8a00', haze: 1.0, back: 1.2, edge: 0.25, caustic: 0.8 },
-  { name: 'Lemon',     swatch: '#ffd83a', deep: '#d79a00', thick: '#fad000', haze: 0.9, back: 1.2, edge: 0.25, caustic: 0.8 },
-  { name: 'Apple',     swatch: '#78cd3b', deep: '#2f8a12', thick: '#56b214', haze: 1.0, back: 1.2, edge: 0.25, caustic: 0.8 },
-  { name: 'Pineapple', swatch: '#f4ecd2', deep: '#cdbf96', thick: '#f5eecf', haze: 0.03, back: 0.4, edge: 0.45, caustic: 0.8, ref: 0.45 },
+  { name: 'Orange',    swatch: '#ff8a1f', deep: '#c94a00', thick: '#ff9c1c', haze: 1.0, back: 1.2, edge: 0.25, caustic: 0.8 },
+  { name: 'Lemon',     swatch: '#ffd83a', deep: '#d79a00', thick: '#ffe43c', haze: 0.9, back: 1.2, edge: 0.25, caustic: 0.8 },
+  { name: 'Apple',     swatch: '#78cd3b', deep: '#2f8a12', thick: '#56b214', haze: 1.0, back: 1.2, edge: 0.25, caustic: 0.8, ref: 0.36 },
+  { name: 'Pineapple', swatch: '#f4ecd2', deep: '#cdbf96', thick: '#f5eecf', haze: 0.08, back: 0.4, edge: 0.45, caustic: 0.8, ref: 0.45 },
 ];
 for (const f of FLAVORS) {
   const lin = hexRgb(f.thick).map(srgbToLinear);
@@ -556,9 +556,10 @@ const FLAT_K = 140, FLAT_D = 7;
 const PIN_W = 3;                // extra weight of a held point in the rigid reference used for damping
 const HELD_DAMP = 1.6;          // a held bear's wobble settles a bit faster (it's in your hand)
 const AIR_K = 110, AIR_D = 21;  // self-righting in the air after a hop / rebound (critically damped)
-const HEAD_HOLD = 900;          // neck stiffness keeping a held head turned like the body
+const HEAD_HOLD = 4500;          // neck stiffness keeping a held head turned like the body
 const PRESS_MIN = 0.38;
-const GRAB_VMAX = 26;           // fastest a held part follows the cursor (units/s)         // deepest pancake (height fraction) when you press a bear down
+const GRAB_VMAX = 26;
+const BOUNCE_KEEP = 0.58;       // a landing bounce leaves with at most this fraction of the fall speed           // fastest a held part follows the cursor (units/s)         // deepest pancake (height fraction) when you press a bear down
 const SLEEP_V2 = 0.07 * 0.07;
 const MAX_BEARS = 30;
 
@@ -587,7 +588,7 @@ class Bear {
     this.x = new Float64Array(N * 3);
     this.v = new Float64Array(N * 3);
     this.px = new Float64Array(N * 3); // positions at the previous sub-step (sleep test)
-    this.frameV2 = Infinity; this.landV = 0;
+    this.frameV2 = Infinity; this.landV = 0; this.lastLandV = 0; this.lastLandT = -9; this.airVy = 0;
     this.rg = new Float64Array(N);   // support radius toward the table (orientation + squash aware)
     this.rc = new Float64Array(N);   // contact radius against other bears
     this.contact = new Uint8Array(N);
@@ -972,8 +973,14 @@ class Bear {
         // (a stretch let go of near the table first drops back down, then hops)
         if ((dipped && this.sy > reb.min + 0.09 && this.grounded) || reb.t > (this.grounded ? 0.6 : 1.2)) {
           reb.armed = false;
-          const vy = Math.min(7.5, (Math.max(0, 0.88 - reb.min) * LAUNCH_GAIN + reb.bonus) * world.bounceMul);
-          if (vy > 0.9 && this.grounded) this.launch(vy, rr(0, 0.25), rand() * TAU, rr(-0.7, 0.7), this.cl[2].R[4] > 0.5);
+          let vy = Math.min(7.5, (Math.max(0, 0.88 - reb.min) * LAUNCH_GAIN + reb.bonus) * world.bounceMul);
+          // a landing bounce gives back only part of what came in: cap the take-off by the body's
+          // fall speed at touchdown (minus the jelly's own recoil), so bounces always die away
+          if (world.time - this.lastLandT < 0.8) {
+            let cvy = 0; for (let i = 0; i < N; i++) cvy += MASS[i] * this.v[3 * i + 1];
+            vy = Math.min(vy, BOUNCE_KEEP * world.bounceMul * this.lastLandV - Math.max(0, cvy / TOTAL_MASS));
+          }
+          if (vy > 1.3 && this.grounded) this.launch(vy, rr(0, 0.25), rand() * TAU, rr(-0.7, 0.7), this.cl[2].R[4] > 0.5);
         }
       }
     }
@@ -985,7 +992,7 @@ class Bear {
     this.grabY0 = this.x[3 * i + 1];
     this.grabUp = this.cl[2].R[4];
     this.target[0] = target[0]; this.target[1] = target[1]; this.target[2] = target[2];
-    this.selfRight = 0; this.landV = 0;
+    this.selfRight = 0; this.landV = 0; this.intro = false;
     // pressing on the head / upper body of a bear sitting on its feet pancakes it
     let low = Infinity;
     for (let j = 0; j < N; j++) low = Math.min(low, this.x[3 * j + 1]);
@@ -1026,7 +1033,10 @@ class Bear {
     // Thrown bears tumble freely.
     this.selfRight = sp < 3 && this.cl[2].R[4] > 0.3 ? 1.2 : 0;
     // a standing bear you pulled over (by a hand, an ear...) and let go springs back onto its feet
-    if (sp < 3 && this.grabUp > 0.7 && this.cl[2].R[4] < 0.74 && this.grounded) this.launch(2.3 + 1.5 * (0.74 - this.cl[2].R[4]), 0, 0, 0, true);
+    if (sp < 3 && this.grabUp > 0.7 && this.cl[2].R[4] < 0.74 && this.grounded) {
+      this.reb.armed = false;
+      this.launch(2.3 + 1.5 * (0.74 - this.cl[2].R[4]), 0, 0, 0, true);
+    }
     this.wake();
   }
 
@@ -1138,17 +1148,23 @@ function substep(h) {
     }
     P.set(X);
     if (ground || b.touching) {
-      if (b.airT > 0.12 && b.impact > 1.7 && b.despawn < 0) {
-        if (b.intro) b.intro = false; else world.bounces++; // the opening drop doesn't count
-        b.landV = Math.max(b.landV || 0, b.impact); // hard landings bounce back up
+      if (b.airT > 0.12) { b.lastLandV = Math.max(0, -b.airVy); b.lastLandT = world.time; }
+      // (a tumbling bear can touch down with a slow point first: judge the landing by the body's fall)
+      if (b.airT > 0.12 && Math.max(b.impact, b.lastLandV) > 1.7 && b.despawn < 0) {
+        if (!b.intro) world.bounces++; // the opening drop (and its settling) doesn't count
+        if (b.grab < 0) b.landV = Math.max(b.landV || 0, b.impact, b.lastLandV); // hard landings bounce back up
       }
       b.airT = 0;
-    } else b.airT += h;
+    } else {
+      b.airT += h;
+      let vy = 0; for (let i = 0; i < N; i++) vy += MASS[i] * b.v[3 * i + 1];
+      b.airVy = vy / TOTAL_MASS;
+    }
     b.grounded = ground || (b.touching && b.airT === 0 && b.supported);
     b.impact = 0;
     if (b.grab < 0 && b.hop.phase === 'idle' && !b.reb.armed && b.despawn < 0 && (maxV2 < SLEEP_V2 || b.frameV2 < 0.25 * SLEEP_V2) && (ground || b.touching)) {
       b.sleepT += h;
-      if (b.sleepT > 0.5) { b.sleeping = true; b.v.fill(0); }
+      if (b.sleepT > 0.5) { b.sleeping = true; b.v.fill(0); b.intro = false; }
     } else b.sleepT = 0;
   }
 }
@@ -1371,9 +1387,9 @@ class Mesher {
     }
     if (n <= this.cap) return;
     this.cap = Math.max(n, Math.ceil(this.cap * 1.5)); // grow in steps: reallocating is a visible hitch
-    this.field = new Float32Array(n);
-    this.cGen = new Int32Array(n * 3);
-    this.cIdx = new Int32Array(n * 3);
+    this.field = new Float32Array(this.cap);
+    this.cGen = new Int32Array(this.cap * 3);
+    this.cIdx = new Int32Array(this.cap * 3);
     this.gen = 0;
   }
   begin() { this.ne = 0; this.nc = 0; }
@@ -1979,6 +1995,7 @@ function meshUploaded(b, g, nv, ni, sp, feat) {
   for (let k = 0; k < b.feat.length; k++) b.feat[k].fromArray(feat, 4 * k);
   b.meshSp.set(sp);
   b.meshed = true;
+  b.meshVer = (b.meshVer || 0) + 1;
   b.lastMeshT = world.time;
 }
 function remesh(b) {
@@ -2043,7 +2060,7 @@ function postMeshJob(b) {
   if (!w) return false;
   b.gather(mesher);
   const id = ++meshJobId, prims = mesher.pack();
-  meshJobs.set(id, { bear: b, sp: Float64Array.from(b.sp), feat: Float32Array.from(b.featNext), t0: performance.now() });
+  meshJobs.set(id, { bear: b, sp: Float64Array.from(b.sp), feat: Float32Array.from(b.featNext), t0: performance.now(), ver: b.meshVer || 0 });
   b.job = id; w.busy++;
   w.postMessage({ id, prims, ne: mesher.ne, nc: mesher.nc }, [prims.buffer]);
   return true;
@@ -2056,7 +2073,7 @@ function meshJobDone(w, r) {
   timings.jobMs = (timings.jobMs || 0) * 0.9 + (performance.now() - job.t0) * 0.1; // round trip
   const b = job.bear;
   if (b.job === r.id) b.job = null;
-  if (b.removed || b.grab >= 0) return; // gone, or picked up meanwhile (meshed live now)
+  if (b.removed || b.grab >= 0 || (b.meshVer || 0) !== job.ver) return; // gone, held, or meshed anew meanwhile
   const g = growGeometry(b, r.nv, r.ni);
   g.attributes.position.array.set(r.P); g.attributes.normal.array.set(r.Nn); g.index.array.set(r.I);
   meshUploaded(b, g, r.nv, r.ni, job.sp, job.feat);
@@ -2448,9 +2465,14 @@ function endDrag(throwIt = true, now = performance.now()) {
   let vel = [0, 0, 0];
   if (throwIt && drag.hist.length >= 2) {
     const h = drag.hist.filter(e => now - e.t < 110);
-    if (h.length >= 2) {
-      const a = h[0], z = h[h.length - 1], dt = Math.max(0.016, (z.t - a.t) / 1000);
-      if (now - z.t < 80) vel = [(z.x - a.x) / dt, (z.y - a.y) / dt, (z.z - a.z) / dt];
+    const hh = h.length >= 2 ? h : drag.hist.slice(-2); // sparse moves (busy page): use the last two
+    if (hh.length >= 2) {
+      const a = hh[0], z = hh[hh.length - 1], dt = Math.max(0.016, (z.t - a.t) / 1000);
+      if (now - z.t < 80) {
+        vel = [(z.x - a.x) / dt, (z.y - a.y) / dt, (z.z - a.z) / dt];
+        const sp = Math.hypot(vel[0], vel[1], vel[2]);
+        if (sp > 16) vel = vel.map(v => v * 16 / sp);
+      }
     }
   }
   b.release(vel);
