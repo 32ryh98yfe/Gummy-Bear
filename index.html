@@ -332,12 +332,15 @@ function extractRotation(A, q, R, iters) {
  *  Flavours
  * ===================================================================== */
 // `thick` is the colour of white light after passing through 0.45 units of jelly
+// `haze` is how much light the jelly scatters (per unit), `back` how much back light glows through,
+// `edge` how much of the room shows in the steeply refracted rim (what makes clear jelly read as clear),
+// `caustic` how brightly it focuses light into its shadow
 const FLAVORS = [
-  { name: 'Cherry',    swatch: '#e2223a', deep: '#8e0718', thick: '#a3001a' },
-  { name: 'Orange',    swatch: '#ff8a1f', deep: '#c94a00', thick: '#e85a00' },
-  { name: 'Lemon',     swatch: '#ffd83a', deep: '#d79a00', thick: '#f2b800' },
-  { name: 'Apple',     swatch: '#78cd3b', deep: '#2f8a12', thick: '#3a9a10' },
-  { name: 'Pineapple', swatch: '#f4ecd2', deep: '#cdbf96', thick: '#e6d59e' },
+  { name: 'Cherry',    swatch: '#e2223a', deep: '#8e0718', thick: '#c2001e', haze: 1.0, back: 1.2, edge: 0.25, caustic: 0.8 },
+  { name: 'Orange',    swatch: '#ff8a1f', deep: '#c94a00', thick: '#f47000', haze: 1.0, back: 1.2, edge: 0.25, caustic: 0.8 },
+  { name: 'Lemon',     swatch: '#ffd83a', deep: '#d79a00', thick: '#fad000', haze: 0.9, back: 1.2, edge: 0.25, caustic: 0.8 },
+  { name: 'Apple',     swatch: '#78cd3b', deep: '#2f8a12', thick: '#56b214', haze: 1.0, back: 1.2, edge: 0.25, caustic: 0.8 },
+  { name: 'Pineapple', swatch: '#f4ecd2', deep: '#cdbf96', thick: '#faf6e6', haze: 0.12, back: 0.4, edge: 0.7, caustic: 0.8 },
 ];
 for (const f of FLAVORS) {
   const lin = hexRgb(f.thick).map(srgbToLinear);
@@ -1260,10 +1263,13 @@ const rimLight = new THREE.DirectionalLight(0xfff0de, 3.4);
 rimLight.position.set(3.5, 4.2, -6);
 scene.add(keyLight, rimLight, new THREE.HemisphereLight(0xffffff, 0xeeeae4, 0.35));
 
-/* --- coloured soft shadows: blobs splatted top-down into a texture the table reads */
+/* --- coloured soft shadows: each bear's silhouette plus contact and caustic blobs,
+ * drawn top-down into a texture the table reads */
 const SHADOW_RECT = { x0: -10, z0: -8, w: 20, d: 14 };
 const SH_DIR = [0.30, -0.42]; // ground offset per unit of height, away from the key light
-const shadowRT = new THREE.WebGLRenderTarget(1024, 720, { type: THREE.HalfFloatType, depthBuffer: false });
+const SH_FADE = 0.75;          // shadow strength falloff per unit height of the caster
+const SH_STRENGTH = 0.9;
+const shadowRT = new THREE.WebGLRenderTarget(512, 360, { type: THREE.HalfFloatType, depthBuffer: false });
 shadowRT.texture.generateMipmaps = false;
 const shadowScene = new THREE.Scene();
 const shadowCam = new THREE.OrthographicCamera(-SHADOW_RECT.w / 2, SHADOW_RECT.w / 2, SHADOW_RECT.d / 2, -SHADOW_RECT.d / 2, 0.1, 50);
@@ -1271,30 +1277,32 @@ shadowCam.up.set(0, 0, -1);
 shadowCam.position.set(SHADOW_RECT.x0 + SHADOW_RECT.w / 2, 20, SHADOW_RECT.z0 + SHADOW_RECT.d / 2);
 shadowCam.lookAt(SHADOW_RECT.x0 + SHADOW_RECT.w / 2, 0, SHADOW_RECT.z0 + SHADOW_RECT.d / 2);
 const MAX_BLOBS = 64 * 24;
+const CAUSTIC_PARTS = [HEAD, CHEST, BELLY];
 const blobGeo = new THREE.InstancedBufferGeometry();
 blobGeo.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
 blobGeo.setIndex([0, 1, 2, 0, 2, 3]);
 const blobA = new THREE.InstancedBufferAttribute(new Float32Array(MAX_BLOBS * 4), 4).setUsage(THREE.DynamicDrawUsage);
-const blobT = new THREE.InstancedBufferAttribute(new Float32Array(MAX_BLOBS * 3), 3).setUsage(THREE.DynamicDrawUsage);
+const blobT = new THREE.InstancedBufferAttribute(new Float32Array(MAX_BLOBS * 4), 4).setUsage(THREE.DynamicDrawUsage); // tint, caustic
 blobGeo.setAttribute('aBlob', blobA);
 blobGeo.setAttribute('aTint', blobT);
 blobGeo.instanceCount = 0;
 const blobMat = new THREE.ShaderMaterial({
   vertexShader: /* glsl */`
-    attribute vec4 aBlob; attribute vec3 aTint;
-    varying vec2 vUv; varying vec3 vTint; varying float vS;
+    attribute vec4 aBlob, aTint;
+    varying vec2 vUv; varying vec4 vTint; varying float vS;
     void main() {
       vUv = position.xy; vTint = aTint; vS = aBlob.w;
       vec3 w = vec3(aBlob.x + position.x * aBlob.z, 0.0, aBlob.y + position.y * aBlob.z);
       gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);
     }`,
   fragmentShader: /* glsl */`
-    varying vec2 vUv; varying vec3 vTint; varying float vS;
+    varying vec2 vUv; varying vec4 vTint; varying float vS;
     void main() {
       float d2 = dot(vUv, vUv);
       if (d2 > 1.0) discard;
       float k = exp(-3.2 * d2) * (1.0 - d2);
-      gl_FragColor = vec4(mix(vec3(1.0), vTint, clamp(vS * k, 0.0, 1.0)), 1.0);
+      // rgb: coloured shade; alpha: 1 − caustic (light focused by the jelly). All min-blended.
+      gl_FragColor = vec4(mix(vec3(1.0), vTint.rgb, clamp(vS * k, 0.0, 1.0)), 1.0 - vTint.a * exp(-2.5 * d2) * (1.0 - d2));
     }`,
   blending: THREE.CustomBlending, blendEquation: THREE.MinEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
   depthTest: false, depthWrite: false, side: THREE.DoubleSide,
@@ -1302,6 +1310,52 @@ const blobMat = new THREE.ShaderMaterial({
 const blobMesh = new THREE.Mesh(blobGeo, blobMat);
 blobMesh.frustumCulled = false;
 shadowScene.add(blobMesh);
+/* Each bear's own mesh, flattened onto the table along the key light and min-blended in
+ * its shadow colour (lighter where the caster is high above the table): a shadow with the
+ * bear's real silhouette, ears and all. The shadow texture is then blurred into a penumbra. */
+const casterBase = new THREE.ShaderMaterial({
+  uniforms: { uTint: { value: new THREE.Vector3(1, 1, 1) }, uStrength: { value: 1 } },
+  defines: { SH_DX: SH_DIR[0].toFixed(4), SH_DZ: SH_DIR[1].toFixed(4), SH_FADE: SH_FADE.toFixed(4) },
+  vertexShader: /* glsl */`
+    varying float vH;
+    void main() {
+      vec4 w = modelMatrix * vec4(position, 1.0);
+      vH = max(w.y, 0.0);
+      gl_Position = projectionMatrix * viewMatrix * vec4(w.x + SH_DX * w.y, 0.0, w.z + SH_DZ * w.y, 1.0);
+    }`,
+  fragmentShader: /* glsl */`
+    uniform vec3 uTint; uniform float uStrength; varying float vH;
+    void main() { gl_FragColor = vec4(mix(vec3(1.0), uTint, uStrength * exp(-SH_FADE * vH)), 1.0); }`,
+  side: THREE.DoubleSide, depthTest: false, depthWrite: false,
+  blending: THREE.CustomBlending, blendEquation: THREE.MinEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+});
+const shadowBlurRT = shadowRT.clone();
+const blurMat = new THREE.ShaderMaterial({
+  uniforms: { uTex: { value: null }, uStep: { value: new THREE.Vector2() } },
+  vertexShader: /* glsl */`varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+  fragmentShader: /* glsl */`
+    uniform sampler2D uTex; uniform vec2 uStep; varying vec2 vUv;
+    void main() { // 13-tap Gaussian from 7 bilinear fetches
+      vec4 c = texture2D(uTex, vUv) * 0.196482;
+      c += (texture2D(uTex, vUv + uStep * 1.411765) + texture2D(uTex, vUv - uStep * 1.411765)) * 0.296906;
+      c += (texture2D(uTex, vUv + uStep * 3.294118) + texture2D(uTex, vUv - uStep * 3.294118)) * 0.094470;
+      c += (texture2D(uTex, vUv + uStep * 5.176471) + texture2D(uTex, vUv - uStep * 5.176471)) * 0.010381;
+      gl_FragColor = c;
+    }`,
+  depthTest: false, depthWrite: false,
+});
+const blurScene = new THREE.Scene();
+const blurQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), blurMat);
+blurQuad.frustumCulled = false;
+blurScene.add(blurQuad);
+const SH_BLUR = 0.75; // texels per blur step (≈ 0.09 world units of penumbra)
+function blurShadow() {
+  const w = shadowRT.width, h = shadowRT.height;
+  blurMat.uniforms.uTex.value = shadowRT.texture; blurMat.uniforms.uStep.value.set(SH_BLUR / w, 0);
+  renderer.setRenderTarget(shadowBlurRT); renderer.render(blurScene, shadowCam);
+  blurMat.uniforms.uTex.value = shadowBlurRT.texture; blurMat.uniforms.uStep.value.set(0, SH_BLUR / h);
+  renderer.setRenderTarget(shadowRT); renderer.render(blurScene, shadowCam);
+}
 
 /* --- the table: endless white, multiplied by the shadow texture. It is not tone
  * mapped, so it matches the page exactly; the backdrop copy also applies the jelly
@@ -1333,7 +1387,12 @@ const tableMat = new THREE.ShaderMaterial({
     void main() {
       vec2 uv = vec2((vWorld.x - uRect.x) / uRect.z, (uRect.y - vWorld.z) / uRect.w);
       vec3 sh = vec3(1.0);
-      if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) sh = texture2D(uShadow, uv).rgb;
+      if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
+        vec4 st = texture2D(uShadow, uv);
+        // caustic: inside the shadow the jelly focuses light of its own colour
+        vec3 cc = st.rgb / max(max(st.r, st.g), max(st.b, 1e-3));
+        sh = mix(st.rgb, cc, clamp(1.0 - st.a, 0.0, 1.0));
+      }
       float r = length((vWorld.xz - uCenter) * vec2(0.75, 1.0));
       float shade = 1.0 - 0.05 * smoothstep(4.0, 18.0, r);
       vec3 col = vec3(uBase * shade) * sh;
@@ -1360,7 +1419,8 @@ backdropScene.add(backdropTable);
 
 /* Absorption pass: every bear is drawn double-sided with additive blending, writing
  * −σ·z on front faces and +σ·z on back faces. The sum is σ × (total jelly thickness
- * along each view ray), exact for any number of overlapping bears and any order. */
+ * along each view ray), exact for any number of overlapping bears and any order.
+ * Alpha accumulates the bare thickness, which the gummy shader uses for its inner glow. */
 const absorbScene = new THREE.Scene();
 const absorbBase = new THREE.ShaderMaterial({
   uniforms: { uSigma: { value: new THREE.Vector3() }, uZRef: { value: 10 } },
@@ -1369,24 +1429,32 @@ const absorbBase = new THREE.ShaderMaterial({
     void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); vZ = -mv.z; gl_Position = projectionMatrix * mv; }`,
   fragmentShader: /* glsl */`
     uniform vec3 uSigma; uniform float uZRef; varying float vZ;
-    void main() { gl_FragColor = vec4((gl_FrontFacing ? -1.0 : 1.0) * uSigma * (vZ - uZRef), 1.0); }`,
+    void main() { gl_FragColor = (gl_FrontFacing ? -1.0 : 1.0) * (vZ - uZRef) * vec4(uSigma, 1.0); }`, // alpha: thickness
   side: THREE.DoubleSide, depthWrite: false, depthTest: false,
   blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
 });
 
 /* --- gummy material: glossy clear-coated jelly. The physical material supplies the
  * clearcoat, specular and environment reflections; the body is replaced by a refracted,
- * roughness-blurred lookup into the absorbing backdrop. */
+ * roughness-blurred lookup into the absorbing backdrop plus light scattered inside the jelly. */
+const lightDir = l => l.position.clone().normalize();
+const lightCol = l => l.color.clone().multiplyScalar(l.intensity);
 const GUMMY = {
   uBackdrop: { value: backdropRT.texture },
   uBackdropSize: { value: new THREE.Vector2(2, 2) },
+  uAbsorb: { value: absorbRT.texture },
   uIor: { value: 1.38 },
   uThick: { value: 0.3 },
   uBlur: { value: 0.16 },
-  uGlow: { value: 0.0 },
+  uKeyDir: { value: lightDir(keyLight) }, uKeyCol: { value: lightCol(keyLight) },
+  uRimDir: { value: lightDir(rimLight) }, uRimCol: { value: lightCol(rimLight) },
+  uAmbCol: { value: new THREE.Color(1.4, 1.4, 1.42) },
+  uScat: { value: 1.5 / (4 * Math.PI) }, // isotropic phase function, a little boosted
+  uEdgeBright: { value: 2.6 },
+  uRimGlow: { value: 2.0 },
 };
-function gummyCompile(shader) {
-  Object.assign(shader.uniforms, GUMMY);
+function gummyCompile(shader, own) {
+  Object.assign(shader.uniforms, GUMMY, own);
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', '#include <common>\nvarying vec3 vGWorld;')
     .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvGWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
@@ -1394,26 +1462,63 @@ function gummyCompile(shader) {
     .replace('#include <common>', `#include <common>
       varying vec3 vGWorld;
       uniform mat4 projectionMatrix;
-      uniform sampler2D uBackdrop; uniform vec2 uBackdropSize; uniform float uIor, uThick, uBlur, uGlow;`)
-    .replace('#include <transmission_fragment>', `{
+      uniform sampler2D uBackdrop, uAbsorb; uniform vec2 uBackdropSize; uniform float uIor, uThick, uBlur;
+      uniform vec3 uSigma, uKeyDir, uKeyCol, uRimDir, uRimCol, uAmbCol; uniform float uHaze, uBack, uScat, uEdgeEnv, uEdgeBright, uRimGlow;`)
+    .replace('#include <transmission_fragment>', `vec3 gT = vec3(0.0);
+    {
       vec3 gv = normalize(cameraPosition - vGWorld);
       vec3 gn = normalize(inverseTransformDirection(normal, viewMatrix));
-      vec3 exitP = vGWorld + refract(-gv, gn, 1.0 / uIor) * uThick;
+      vec3 t1 = refract(-gv, gn, 1.0 / uIor);
+      vec3 exitP = vGWorld + t1 * uThick;
       vec4 clip = projectionMatrix * viewMatrix * vec4(exitP, 1.0);
       vec2 suv = clip.xy / clip.w * 0.5 + 0.5;
       float lod = log2(max(uBackdropSize.x, 1.0)) * uBlur;
       vec3 seen = textureLod(uBackdrop, suv, lod).rgb;
       float f0 = pow((uIor - 1.0) / (uIor + 1.0), 2.0);
       float fr = f0 + (1.0 - f0) * pow(1.0 - clamp(dot(gn, gv), 0.0, 1.0), 5.0);
-      totalDiffuse = (1.0 - fr) * seen + totalDiffuse * uGlow;
-    }`);
+      // Where the ray leaves the far side bent steeply (near the silhouette) it no longer
+      // sees the table but the room: take that from the environment, which gives clear
+      // jelly the darker, structured edges of glass. The far side is assumed sphere-like.
+      vec3 nb = gn - 2.0 * dot(gn, t1) * t1;
+      vec3 t2 = refract(t1, -nb, uIor);
+      float offTable = uEdgeEnv * (1.0 - smoothstep(0.04, 0.4, -t2.y));
+      // The table seen through the jelly is display-referred like the table itself
+      // (which is not tone mapped), so it is added after tone mapping below.
+      gT = (1.0 - fr) * (1.0 - offTable) * seen;
+      vec3 envT = vec3(0.0);
+      #ifdef USE_ENVMAP
+        if (offTable > 0.0) envT = (1.0 - fr) * offTable * uEdgeBright * envMapIntensity * textureCubeUV(envMap, envMapRotation * t2, 0.12).rgb;
+      #endif
+      // Light scattered inside the jelly: single scattering through a slab as thick as
+      // the jelly on this pixel, coloured by the absorption on the way in and out. It keeps
+      // stacked bears from turning black and makes thin, back-lit parts glow.
+      vec4 sc = projectionMatrix * viewMatrix * vec4(vGWorld, 1.0);
+      float d = max(texture2D(uAbsorb, sc.xy / sc.w * 0.5 + 0.5).a, 0.0);
+      vec3 ext = uSigma + uHaze;
+      vec3 alb = uHaze / ext * (1.0 - exp(-ext * d)) * exp(-uSigma * 0.08);
+      float wk = 0.5 + 0.5 * dot(gn, uKeyDir);
+      // back light: shines through the jelly toward the camera, and enters the rim on the
+      // lit side to glow out of the silhouette in the jelly's own colour
+      float bt = pow(clamp(dot(gv, -normalize(uRimDir + gn * 0.45)), 0.0, 1.0), 3.0);
+      float rimF = pow(1.0 - clamp(dot(gn, gv), 0.0, 1.0), 2.5) * clamp(dot(gn, uRimDir) * 0.6 + 0.4, 0.0, 1.0);
+      vec3 back = uRimCol * uBack * (bt * exp(-uSigma * d * 0.5) + uRimGlow * rimF * exp(-uSigma * (0.06 + d * 0.3)));
+      totalDiffuse = uScat * (alb * (uKeyCol * wk * wk + uAmbCol) + back)
+        + envT * exp(-uSigma * d);
+      gT *= exp(-uHaze * d); // what the haze scatters is no longer transmitted
+    }`)
+    .replace('#include <tonemapping_fragment>', `#include <tonemapping_fragment>
+    #ifdef USE_CLEARCOAT
+      gT *= 1.0 - clearcoat * Fcc;
+    #endif
+    gl_FragColor.rgb = min(gl_FragColor.rgb + gT, vec3(1.0));`);
 }
-const gummyMats = FLAVORS.map(() => {
+const gummyMats = FLAVORS.map(f => {
   const m = new THREE.MeshPhysicalMaterial({
     color: 0xffffff, roughness: 0.22, metalness: 0, ior: 1.38, specularIntensity: 1,
     clearcoat: 1, clearcoatRoughness: 0.035, envMapIntensity: 1.15,
   });
-  m.onBeforeCompile = gummyCompile;
+  m.userData.u = { uSigma: { value: new THREE.Vector3().fromArray(f.sigma) }, uHaze: { value: f.haze }, uBack: { value: f.back }, uEdgeEnv: { value: f.edge } };
+  m.onBeforeCompile = shader => gummyCompile(shader, m.userData.u);
   return m;
 });
 
@@ -1435,8 +1540,13 @@ function attachRender(b) {
   b.absorbMat.uniforms.uSigma.value.fromArray(FLAVORS[b.flavor].sigma);
   b.proxy = new THREE.Mesh(geo, b.absorbMat);
   b.proxy.frustumCulled = false;
+  b.casterMat = casterBase.clone();
+  b.casterMat.uniforms.uTint.value.fromArray(FLAVORS[b.flavor].shade);
+  b.caster = new THREE.Mesh(geo, b.casterMat);
+  b.caster.frustumCulled = false;
   scene.add(b.mesh);
   absorbScene.add(b.proxy);
+  shadowScene.add(b.caster);
   b.meshed = false;
 }
 
@@ -1454,7 +1564,7 @@ function remesh(b) {
       break;
     }
     const ng = makeGeometry(Math.ceil(g.userData.capV * 1.6), Math.ceil(g.userData.capT * 1.6));
-    b.mesh.geometry = ng; b.proxy.geometry = ng;
+    b.mesh.geometry = ng; b.proxy.geometry = ng; b.caster.geometry = ng;
     g.dispose();
   }
   b.meshed = true;
@@ -1465,8 +1575,10 @@ function removeBear(b) {
   if (k >= 0) world.bears.splice(k, 1);
   scene.remove(b.mesh);
   absorbScene.remove(b.proxy);
+  shadowScene.remove(b.caster);
   b.mesh.geometry.dispose();
   b.absorbMat.dispose();
+  b.casterMat.dispose();
   if (world.focus === b) world.focus = null;
   if (drag && drag.bear === b) endDrag(false);
 }
@@ -1481,27 +1593,27 @@ function updateRenderables() {
     const c = b.cl[2].c, q = b.cl[2].quat;
     b.mesh.position.set(c[0], c[1], c[2]); b.mesh.quaternion.set(q[0], q[1], q[2], q[3]);
     b.proxy.position.copy(b.mesh.position); b.proxy.quaternion.copy(b.mesh.quaternion);
+    b.caster.position.copy(b.mesh.position); b.caster.quaternion.copy(b.mesh.quaternion);
     b.absorbMat.uniforms.uZRef.value = -(view[2] * c[0] + view[6] * c[1] + view[10] * c[2] + view[14]);
-    // shadow blobs
     const X = b.x, tint = FLAVORS[b.flavor].shade, sc = b.scale;
-    const put = (x, z, r, s, t) => {
+    b.casterMat.uniforms.uStrength.value = SH_STRENGTH * sc;
+    b.caster.visible = b.meshed;
+    // blobs: contact occlusion where parts touch the table, plus caustics
+    const put = (x, z, r, s, t, caustic = 0) => {
       if (nb >= MAX_BLOBS) return;
       A[4 * nb] = x; A[4 * nb + 1] = z; A[4 * nb + 2] = r; A[4 * nb + 3] = s;
-      T[3 * nb] = t[0]; T[3 * nb + 1] = t[1]; T[3 * nb + 2] = t[2]; nb++;
+      T[4 * nb] = t[0]; T[4 * nb + 1] = t[1]; T[4 * nb + 2] = t[2]; T[4 * nb + 3] = caustic; nb++;
     };
+    const dark = [tint[0] * 0.7, tint[1] * 0.7, tint[2] * 0.72];
     for (let i = 0; i < N; i++) {
-      const y = X[3 * i + 1], hgt = Math.max(0, y - b.rg[i]);
-      const big = i === HEAD || i === CHEST || i === BELLY;
-      put(X[3 * i] + SH_DIR[0] * y, X[3 * i + 2] + SH_DIR[1] * y, b.rc[i] * (1.6 + 0.7 * hgt) + 0.08 * sc,
-        (big ? 1.0 : 0.7) * Math.exp(-1.1 * hgt) * sc, tint);
+      const hgt = Math.max(0, X[3 * i + 1] - b.rg[i]);
+      if (hgt < 0.15) put(X[3 * i], X[3 * i + 2], b.rc[i] * 1.25, 0.55 * (1 - hgt / 0.15) * sc, dark);
     }
-    for (const s of STRANDS) {
-      const a3 = 3 * s.a, b3 = 3 * s.b;
-      const mx = (X[a3] + X[b3]) / 2, my = (X[a3 + 1] + X[b3 + 1]) / 2, mz = (X[a3 + 2] + X[b3 + 2]) / 2;
-      const L = Math.hypot(X[b3] - X[a3], X[b3 + 1] - X[a3 + 1], X[b3 + 2] - X[a3 + 2]);
-      const rest = Math.hypot(REST[b3] - REST[a3], REST[b3 + 1] - REST[a3 + 1], REST[b3 + 2] - REST[a3 + 2]);
-      const r = Math.max(0.04, s.ra * Math.sqrt(rest / Math.max(L, 1e-3))) * sc;
-      put(mx + SH_DIR[0] * my, mz + SH_DIR[1] * my, r * 1.9 + 0.06, 0.62 * Math.exp(-1.1 * my), tint);
+    // caustics: the round head and body act as lenses and focus light into the shadow
+    for (const i of CAUSTIC_PARTS) {
+      const y = X[3 * i + 1], hgt = Math.max(0, y - b.rg[i]);
+      put(X[3 * i] + SH_DIR[0] * y * 1.15, X[3 * i + 2] + SH_DIR[1] * y * 1.15, PARTS[i].r * (1.15 + 0.6 * hgt) * sc,
+        0, tint, FLAVORS[b.flavor].caustic * (i === HEAD ? 0.75 : 1) * Math.exp(-0.8 * hgt) * sc);
     }
     // soft contact occlusion right under the body
     const cy = c[1], lift = Math.max(0, cy - 0.38);
@@ -1510,15 +1622,15 @@ function updateRenderables() {
   }
   blobGeo.instanceCount = nb;
   blobA.clearUpdateRanges(); blobA.addUpdateRange(0, nb * 4); blobA.needsUpdate = true;
-  blobT.clearUpdateRanges(); blobT.addUpdateRange(0, nb * 3); blobT.needsUpdate = true;
+  blobT.clearUpdateRanges(); blobT.addUpdateRange(0, nb * 4); blobT.needsUpdate = true;
 }
 
 function render() {
   updateRenderables();
   renderer.setRenderTarget(shadowRT);
   renderer.setClearColor(0xffffff, 1);
-  renderer.clear();
   renderer.render(shadowScene, shadowCam);
+  blurShadow();
   renderer.setRenderTarget(absorbRT);
   renderer.setClearColor(0x000000, 0);
   renderer.render(absorbScene, camera);
