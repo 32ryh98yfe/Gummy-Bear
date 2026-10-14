@@ -10,9 +10,11 @@
   :root {
     --ink: #141313;
     --ink-2: #3b3936;
-    --muted: #8a8681;
+    --muted: #75716b;              /* ≥ 4.5:1 on the table white and on the card */
     --line: rgba(20, 19, 19, 0.09);
     --paper: #f4f3f1;
+    --gx: clamp(20px, 4.2vw, 72px); /* page gutters */
+    --gy: clamp(18px, 4.6vh, 56px);
     --serif: "Didot", "Bodoni 72", "Bodoni MT", "Playfair Display", "Iowan Old Style", "Palatino Linotype", Palatino, ui-serif, Georgia, "Times New Roman", serif;
     --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Inter, "Segoe UI", Roboto, Arial, sans-serif;
     --ease-jelly: cubic-bezier(.3, 1.6, .45, 1);
@@ -25,6 +27,7 @@
     -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
     -webkit-user-select: none; user-select: none;
     -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
   }
   #scene {
     position: fixed; inset: 0; width: 100%; height: 100%;
@@ -35,38 +38,41 @@
   /* ---------- masthead ---------- */
   .mast {
     position: fixed; z-index: 2;
-    left: clamp(20px, 4.2vw, 72px); top: clamp(18px, 4.6vh, 56px);
+    left: max(var(--gx), env(safe-area-inset-left)); top: max(var(--gy), env(safe-area-inset-top));
     pointer-events: none;
   }
   .eyebrow {
     display: flex; align-items: center; gap: 14px;
     font: 600 10.5px/1 var(--sans); letter-spacing: .2em; text-transform: uppercase; color: var(--muted);
   }
-  .eyebrow .rule { width: 44px; height: 1px; background: currentColor; opacity: .6; }
+  .eyebrow .rule { width: 44px; height: 1px; background: currentColor; opacity: .55; }
   .title {
     margin: clamp(10px, 2vh, 22px) 0 0;
     font-family: var(--serif); font-style: italic; font-weight: 400;
-    font-size: clamp(64px, 11.2vw, 196px); line-height: .82; letter-spacing: -.035em;
+    font-size: clamp(64px, min(11.2vw, 21vh), 196px); line-height: .82; letter-spacing: -.035em;
     color: var(--ink);
   }
   .title span { display: block; }
   .title span + span { padding-left: .5em; }
   .sub {
-    margin: clamp(16px, 2.6vh, 28px) 0 0 .2em; max-width: 31ch;
+    margin: clamp(14px, 2.6vh, 28px) 0 0 .2em; max-width: 31ch;
     font: 400 15px/1.55 var(--sans); color: var(--ink-2);
+    text-wrap: pretty;
   }
 
   /* ---------- product card ---------- */
   .card {
     position: fixed; z-index: 3;
-    right: clamp(16px, 3vw, 52px); top: 50%; transform: translateY(-50%);
-    width: 296px; padding: 20px 20px 18px;
+    right: max(clamp(16px, 3vw, 52px), env(safe-area-inset-right)); top: 50%; transform: translateY(-50%);
+    width: 296px; max-height: calc(100% - 24px); overflow: auto; overscroll-behavior: contain;
+    padding: 20px 20px 18px;
     background: rgba(255, 255, 255, .74);
     -webkit-backdrop-filter: blur(22px) saturate(150%); backdrop-filter: blur(22px) saturate(150%);
     border: 1px solid var(--line); border-radius: 22px;
     box-shadow: 0 1px 0 rgba(255,255,255,.9) inset, 0 30px 70px -36px rgba(40, 28, 16, .32), 0 2px 8px rgba(0,0,0,.035);
-    cursor: default;
+    cursor: default; scrollbar-width: none;
   }
+  .card::-webkit-scrollbar { display: none; }
   .row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
   .label { font: 600 10.5px/1 var(--sans); letter-spacing: .17em; text-transform: uppercase; color: var(--muted); }
   .meta { font: italic 400 15px/1 var(--serif); color: var(--ink-2); }
@@ -75,9 +81,9 @@
   .swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin: 16px -4px 0; }
   .sw {
     appearance: none; -webkit-appearance: none; border: 0; background: none; padding: 6px 0 4px; margin: 0;
-    display: flex; flex-direction: column; align-items: center; gap: 9px;
+    display: flex; flex-direction: column; align-items: center; gap: 9px; min-width: 0;
     font: 500 10.5px/1 var(--sans); letter-spacing: .01em; color: var(--ink-2); cursor: pointer;
-    border-radius: 12px;
+    border-radius: 12px; white-space: nowrap;
   }
   .sw i {
     display: block; width: 34px; height: 34px; border-radius: 50%;
@@ -88,14 +94,17 @@
     box-shadow: inset 0 -4px 7px rgba(0,0,0,.14), inset 0 2px 3px rgba(255,255,255,.55), 0 7px 14px -8px var(--d);
     transition: transform .45s var(--ease-jelly);
   }
-  .sw:hover i { transform: translateY(-3px) scale(1.07, 1.1); }
+  @media (hover: hover) { .sw:hover i { transform: translateY(-3px) scale(1.07, 1.1); } }
   .sw:active i { transform: scale(1.18, .78); transition-duration: .08s; }
   .sw:focus-visible, .pour:focus-visible, input[type=range]:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+  .sw:focus:not(:focus-visible), .pour:focus:not(:focus-visible), input[type=range]:focus:not(:focus-visible) { outline: none; }
+  input[type=range]:focus-visible { outline-offset: 0; }
 
-  .wobble-head output { font: italic 400 16px/1 var(--serif); color: var(--ink); font-variant-numeric: tabular-nums; }
+  .wobble-head output { font: italic 400 16px/1 var(--serif); color: var(--ink); white-space: nowrap; }
   input[type=range] {
     -webkit-appearance: none; appearance: none; display: block;
-    width: 100%; height: 26px; margin: 10px 0 2px; background: transparent; cursor: pointer;
+    width: 100%; height: 26px; margin: 8px 0 4px; padding: 0; background: transparent; cursor: pointer;
+    border-radius: 13px;
     --p: 60%;
   }
   input[type=range]::-webkit-slider-runnable-track {
@@ -126,20 +135,21 @@
 
   .pour {
     appearance: none; -webkit-appearance: none; margin: 18px 0 0; width: 100%;
-    display: flex; align-items: center; justify-content: space-between;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
     padding: 15px 18px 15px 20px; border: 0; border-radius: 999px;
-    background: var(--ink); color: #fff; cursor: pointer;
+    background: var(--ink); color: #fff; cursor: pointer; white-space: nowrap;
     font: 500 14px/1 var(--sans); letter-spacing: .005em;
     transition: transform .4s var(--ease-jelly), background .2s;
   }
-  .pour:hover { background: #000; transform: translateY(-1px); }
+  @media (hover: hover) { .pour:hover { background: #000; transform: translateY(-1px); } }
   .pour:active { transform: scale(.97, .93); transition-duration: .08s; }
   .pour svg { width: 18px; height: 18px; flex: none; }
-  .fine { margin: 12px 0 0; font: 400 11px/1.45 var(--sans); color: var(--muted); text-align: center; }
+  .fine { margin: 12px 0 0; font: 400 11px/1.45 var(--sans); color: var(--muted); text-align: center; text-wrap: balance; }
+  .fine span { white-space: nowrap; }
 
   /* ---------- footer ---------- */
   .foot {
-    position: fixed; z-index: 2; left: clamp(20px, 4.2vw, 72px); bottom: clamp(16px, 3.6vh, 36px);
+    position: fixed; z-index: 2; left: max(var(--gx), env(safe-area-inset-left)); bottom: max(clamp(16px, 3.6vh, 36px), env(safe-area-inset-bottom));
     display: flex; gap: 22px; align-items: baseline; pointer-events: none;
     font: 400 11.5px/1.3 var(--sans); color: var(--muted);
   }
@@ -164,6 +174,7 @@
   .cursor.hover i { transform: scale(.66); border-color: rgba(20,19,19,.75); }
   .cursor.grab i { transform: scale(1.18); background-color: rgba(20,19,19,.05); border-color: rgba(20,19,19,.42); }
   .cursor.grab b { transform: scale(.5); }
+  body.no-fine-pointer .cursor { display: none; }
 
   .loading {
     position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 1;
@@ -171,25 +182,100 @@
   }
   body.ready .loading { opacity: 0; }
 
-  @media (max-width: 760px) {
-    .title { font-size: clamp(54px, 17vw, 112px); }
-    .sub { font-size: 13.5px; max-width: 28ch; }
+  /* ---------- portrait screens: the card docks along the bottom, the bears get the middle ---------- */
+  @media (max-aspect-ratio: 9/10) {
     .card {
-      top: auto; bottom: max(12px, env(safe-area-inset-bottom)); left: 12px; right: 12px; transform: none;
-      width: auto; padding: 14px 16px 14px; border-radius: 20px;
+      top: auto; right: auto; left: 50%; transform: translateX(-50%);
+      bottom: max(var(--gx), env(safe-area-inset-bottom)); width: min(100% - 2 * var(--gx), 760px);
     }
-    .card .sep { margin: 10px 0; }
-    .swatches { margin-top: 10px; }
-    .sw i { width: 28px; height: 28px; }
-    .stat b { font-size: 34px; margin-top: 8px; }
-    .pour { margin-top: 12px; padding: 13px 16px 13px 18px; }
-    .fine, .foot { display: none; }
+    .foot { display: none; }
   }
-  @media (max-width: 760px) and (max-height: 760px) {
-    .card .wobble-block { display: none; }
+  /* tablets: one wide panel in two columns */
+  @media (max-aspect-ratio: 9/10) and (min-width: 600px) {
+    .title { font-size: clamp(64px, 14vw, 156px); }
+    .card { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); padding: 22px 26px 20px; }
+    .col-b { padding-left: 26px; margin-left: 26px; border-left: 1px solid var(--line); display: flex; flex-direction: column; }
+    .col-b > .sep { display: none; }
+    .col-b .stat b { margin-top: 10px; }
+    .col-b .pour { margin-top: auto; }
+    .col-b .fine { margin-top: 10px; }
+  }
+  /* phones: a compact sheet; the wobble slider and the readouts each collapse to one row */
+  @media (max-aspect-ratio: 9/10) and (max-width: 599px) {
+    :root { --gx: 16px; }
+    .mast { left: 20px; right: 20px; top: max(18px, env(safe-area-inset-top)); }
+    .eyebrow { font-size: 9.5px; gap: 10px; }
+    .eyebrow .rule { width: 28px; }
+    .title { margin-top: 10px; font-size: clamp(46px, min(17vw, 8.2vh), 104px); }
+    .sub { margin-top: 12px; font-size: 13.5px; line-height: 1.5; max-width: 36ch; }
+    .card { padding: 12px 14px 14px; border-radius: 20px; width: auto; left: var(--gx); right: var(--gx); transform: none; }
+    .card-head, .fine { display: none; }
+    .swatches { margin: 0 -6px; }
+    .sw { gap: 7px; padding: 6px 0 2px; }
+    .sw i { width: 28px; height: 28px; }
+    .sep { margin: 10px 0; }
+    .wobble-block { display: grid; grid-template-columns: auto 1fr auto; align-items: center; column-gap: 14px; }
+    .wobble-head { display: contents; }
+    .wobble-head output { order: 3; min-width: 4.3em; text-align: right; font-size: 15px; }
+    .wobble-block input[type=range] { order: 2; margin: 0; height: 32px; }
+    .scale { display: none; }
+    .col-b { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; column-gap: 12px; }
+    .col-b > .sep { grid-column: 1 / -1; }
+    .stat b { font-size: 31px; margin-top: 7px; }
+    .stat + .stat { padding-left: 12px; }
+    .pour { margin: 0; width: auto; padding: 13px 15px 13px 17px; font-size: 13.5px; }
+    .pour svg { width: 16px; height: 16px; }
+  }
+  @media (max-aspect-ratio: 9/10) and (max-width: 359px) {
+    .col-b { grid-template-columns: minmax(0, 1fr); row-gap: 10px; }
+    .pour { width: 100%; }
+  }
+  @media (max-aspect-ratio: 9/10) and (max-width: 599px) and (max-height: 700px) {
+    .eyebrow { display: none; }
+    .title { margin-top: 0; }
+    .sw span { display: none; }
+  }
+  @media (max-aspect-ratio: 9/10) and (max-width: 599px) and (max-height: 600px) {
+    .sub { display: none; }
+  }
+
+  /* ---------- short landscape (phones on their side, squat windows) ---------- */
+  @media (max-height: 560px) and (min-aspect-ratio: 9/10) {
+    :root { --gx: clamp(16px, 3vw, 40px); --gy: 14px; }
+    .mast { display: grid; grid-template-columns: auto auto; align-items: end; column-gap: clamp(16px, 3vw, 32px); }
+    .eyebrow { display: none; }
+    .title { margin: 0; font-size: clamp(40px, 14vh, 76px); }
+    .sub { margin: 0 0 .25em; max-width: 25ch; font-size: 12.5px; line-height: 1.45; }
+    .card { width: 260px; padding: 10px 16px 14px; border-radius: 18px; }
+    .card-head, .fine, .scale { display: none; }
+    .swatches { margin: 0 -6px; }
+    .sw { gap: 7px; padding: 6px 0 2px; }
+    .sw i { width: 26px; height: 26px; }
+    .sep { margin: 10px 0; }
+    .wobble-block { display: grid; grid-template-columns: auto 1fr auto; align-items: center; column-gap: 12px; }
+    .wobble-head { display: contents; }
+    .wobble-head output { order: 3; min-width: 3.7em; text-align: right; font-size: 15px; }
+    .wobble-block input[type=range] { order: 2; margin: 0; }
+    .stat b { font-size: 32px; margin-top: 7px; }
+    .pour { margin-top: 12px; padding: 12px 16px 12px 18px; font-size: 13.5px; }
+    .foot { display: none; }
+  }
+  @media (max-height: 360px) and (min-aspect-ratio: 9/10) {
+    .sub { display: none; }
+    .sw span { display: none; }
+  }
+
+  /* very large screens: scale the type and the card with the scene */
+  @media (min-width: 2000px) and (min-height: 1100px) { .mast, .card, .foot { zoom: 1.2; } }
+  @media (min-width: 2400px) and (min-height: 1300px) { .mast, .card, .foot { zoom: 1.4; } }
+
+  @media (pointer: coarse) {
+    input[type=range] { height: 36px; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .sw i, .pour, .cursor i { transition: none; }
+    .sw i, .pour, .cursor i, .cursor b, .loading { transition: none; }
+    /* separate rule: an unknown vendor pseudo-element would void the whole list in other engines */
+    input[type=range]::-webkit-slider-thumb { transition: none; }
   }
 </style>
 <script type="importmap">
@@ -202,35 +288,39 @@
 </script>
 </head>
 <body>
-<canvas id="scene" aria-label="Interactive scene: translucent gummy bears on a white table. Drag a bear to stretch it, press down to squash it, flick to throw it."></canvas>
+<canvas id="scene" role="img" aria-label="Interactive scene: translucent gummy bears on a white table. Drag a bear to stretch it, press down to squash it, flick to throw it."></canvas>
 
 <div class="loading" aria-hidden="true">Setting the jelly…</div>
 
 <header class="mast">
   <div class="eyebrow"><span>Nº 05</span><span class="rule"></span><span>Fruit gums · Soft goods</span></div>
-  <h1 class="title"><span>Gummy</span><span>Bears.</span></h1>
+  <h1 class="title" aria-label="Gummy Bears."><span>Gummy</span><span>Bears.</span></h1>
   <p class="sub">Five fruit gums, cast in starch and left to set overnight. Pull one, press one, throw one &mdash; every bear springs right back.</p>
 </header>
 
-<aside class="card" id="card" aria-label="Controls">
-  <div class="row"><span class="label">Assortment</span><span class="meta">five flavours</span></div>
-  <div class="swatches" id="swatches" role="group" aria-label="Flavours. Click one to drop a bear of that flavour."></div>
-  <div class="sep"></div>
-  <div class="wobble-block">
-    <label class="row wobble-head" for="wobble"><span class="label">Wobble</span><output id="wobbleOut" for="wobble">Jiggly</output></label>
-    <input id="wobble" type="range" min="0" max="100" step="1" value="62" aria-describedby="wobbleScale" />
-    <div class="scale" id="wobbleScale"><span>Firm</span><span>Molten</span></div>
+<aside class="card" id="card" aria-label="Gummy bear controls">
+  <div class="col col-a">
+    <div class="row card-head"><span class="label">Assortment</span><span class="meta">five flavours</span></div>
+    <div class="swatches" id="swatches" role="group" aria-label="Flavours: drop a bear of that flavour"></div>
     <div class="sep"></div>
+    <div class="wobble-block">
+      <div class="row wobble-head"><label class="label" for="wobble">Wobble</label><output id="wobbleOut" for="wobble">Jiggly</output></div>
+      <input id="wobble" type="range" min="0" max="100" step="1" value="62" aria-describedby="wobbleScale" />
+      <div class="scale" id="wobbleScale"><span>Firm</span><span>Molten</span></div>
+    </div>
   </div>
-  <div class="stats">
-    <div class="stat"><span class="label">Stretch</span><b id="stretch">100<small>%</small></b></div>
-    <div class="stat"><span class="label">Bounces</span><b id="bounces">0</b></div>
+  <div class="col col-b">
+    <div class="sep"></div>
+    <div class="stats" role="group" aria-label="Live readouts">
+      <div class="stat"><span class="label">Stretch</span><b id="stretch">100<small>%</small></b></div>
+      <div class="stat"><span class="label">Bounces</span><b id="bounces">0</b></div>
+    </div>
+    <button class="pour" id="pour" type="button">
+      <span>Pour more bears</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v15M5.5 12.5 12 19l6.5-6.5"/></svg>
+    </button>
+    <p class="fine"><span>Drag to stretch,</span> <span>press to squash,</span> <span>flick to throw.</span></p>
   </div>
-  <button class="pour" id="pour" type="button">
-    <span>Pour more bears</span>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v15M5.5 12.5 12 19l6.5-6.5"/></svg>
-  </button>
-  <p class="fine">Drag to stretch &middot; press down to squash &middot; flick to throw</p>
 </aside>
 
 <footer class="foot"><em>Fig. 1</em><span>Assorted jelly bears, shown actual squish.</span></footer>
@@ -1550,33 +1640,77 @@ function screenToPlane(px, py, y, out = new THREE.Vector3()) {
   const t = (y - o.y) / (d.y || -1e-6);
   return out.copy(o).addScaledVector(d, t);
 }
+const mastEl = document.querySelector('.mast'), footEl = document.querySelector('.foot');
+const HEAD_Y = 1.04; // ear tips of a standing bear
+const STAGE_CENTER = new THREE.Vector3(-0.4, 0.5, 0.45);
+function shown(el) {
+  if (!el || getComputedStyle(el).display === 'none') return null;
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0 ? r : null;
+}
+/* The free part of the page, in CSS px, where the bears live: below the masthead text and
+ * beside (desktop) or above (portrait, docked sheet) the card, clear of the footer caption. */
+function stageRect(w, h) {
+  const card = cardEl.getBoundingClientRect();
+  const docked = card.top > h * 0.4 && card.left < w * 0.3;
+  const gap = clamp(h * 0.02, 8, 20);
+  const gx = clamp(mastEl.getBoundingClientRect().left, 12, 80);
+  let textBottom = 0;
+  for (const el of mastEl.children) { const r = shown(el); if (r) textBottom = Math.max(textBottom, r.bottom); }
+  const foot = shown(footEl);
+  return docked
+    ? { docked, l: gx, r: w - gx, t: textBottom + gap, b: card.top - gap }
+    : { docked, l: gx, r: card.left - gx * 0.6, t: textBottom + gap, b: foot ? foot.top - gap : h - gap * 1.5 };
+}
+const _pv = new THREE.Vector3();
+function screenY(x, y, z) { _pv.set(x, y, z).project(camera); return (1 - _pv.y) / 2 * innerHeight; }
 function layout() {
-  const w = innerWidth, h = innerHeight, aspect = w / h;
+  const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
   sizeBuffers();
-  camera.aspect = aspect;
-  const mobile = w < 760;
-  camera.fov = mobile ? 34 : 30;
-  const dist = 8.4 * clamp(1.55 / aspect, 1, 2.4);
-  const pitch = mobile ? 0.5 : 0.42;
-  const shift = mobile ? 0 : clamp(dist * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * aspect * 0.12, 0, 1.4);
-  const target = new THREE.Vector3(shift, mobile ? 1.55 : 1.4, 0.35);
-  camera.position.set(target.x, target.y + Math.sin(pitch) * dist, target.z + Math.cos(pitch) * dist);
-  camera.lookAt(target);
+  const S = stageRect(w, h);
+  const sw = Math.max(S.r - S.l, 160), sh = Math.max(S.b - S.t, 110);
+  camera.aspect = w / h;
+  camera.fov = S.docked ? 32 : 30;
+  const fy = h / 2 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  // look down a little more when the stage sits low on a wide screen, so the far edge of the
+  // table never comes into view above the top of the page
+  const cy = (S.t + S.b) / 2;
+  const pitch = Math.max(S.docked ? 0.52 : 0.42, Math.atan(cy / fy) + 0.075), sp = Math.sin(pitch), cp = Math.cos(pitch);
+  // Pixels per world unit at the stage centre: a standing bear plus a minimum depth of table
+  // must fit the free height, at least ~3 units of table its width, and the bears are capped
+  // at roughly a quarter of the screen height (a little more on squat screens).
+  const depth = S.docked ? 2.6 : 2.2;
+  const cap = h * lerp(0.3, 0.235, clamp((h - 400) / 300, 0, 1));
+  const minWidth = S.docked && w < 600 ? 2.7 : 3.1;
+  let k = Math.min(sh / (HEAD_Y * cp + depth * sp), sw / minWidth, cap);
+  // a straight line-up reads best when it (nearly) fits; otherwise the bears group in two rows
+  const kRow = sw / 5.0;
+  world.lineup = kRow >= 0.85 * k;
+  if (world.lineup) k = Math.min(k, kRow);
+  k = Math.max(k, 24);
+  const dist = fy / k;
+  // the stage centre; slightly off the world origin so a bear spawned at x = 0, z = 0.6 (the
+  // test harness' spot) stands near the middle of the free area
+  const A = STAGE_CENTER;
+  camera.position.set(A.x, A.y + sp * dist, A.z + cp * dist);
+  camera.lookAt(A);
+  // lens shift (an off-axis frustum, like a shift lens): the stage centre lands in the middle
+  // of the free area while verticals stay upright and every bear is seen from the same angle
+  camera.setViewOffset(w, h, w / 2 - (S.l + S.r) / 2, h / 2 - cy, w, h);
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld();
-  const card = cardEl.getBoundingClientRect();
-  const left = w * 0.03 + 6, right = mobile ? w * 0.97 - 6 : card.left - 18;
-  const top = h * (mobile ? 0.36 : 0.5), bottom = mobile ? card.top - 8 : h * 0.97;
-  const Y = 0.3;
-  const tl = screenToPlane(left, top, Y), tr = screenToPlane(right, top, Y);
-  const bl = screenToPlane(left, bottom, Y), br = screenToPlane(right, bottom, Y);
+  // walls: a bear at the back keeps its ears below the text, at the front its feet above the
+  // card / caption, and at the sides its middle inside the margins
   const bd = world.bounds;
-  bd.zBack = Math.max(tl.z, tr.z, -5);
-  bd.zFront = Math.min(bl.z, br.z, 3.6);
-  if (bd.zFront - bd.zBack < 2.2) bd.zFront = bd.zBack + 2.2;
-  bd.lB = (bl.x - tl.x) / (bl.z - tl.z); bd.lA = tl.x - bd.lB * tl.z;
-  bd.rB = (br.x - tr.x) / (br.z - tr.z); bd.rA = tr.x - bd.rB * tr.z;
+  bd.zBack = Math.max(screenToPlane(S.l, S.t, HEAD_Y).z, -6.5);
+  bd.zFront = Math.min(screenToPlane(S.l, S.b, 0).z, 5.5);
+  if (bd.zFront - bd.zBack < 1.6) { const m = (bd.zBack + bd.zFront) / 2; bd.zBack = m - 0.8; bd.zFront = m + 0.8; }
+  const side = (px, z) => screenToPlane(px, screenY(0, 0.55, z), 0.55).x;
+  const lb = side(S.l, bd.zBack), lf = side(S.l, bd.zFront), rb = side(S.r, bd.zBack), rf = side(S.r, bd.zFront);
+  const dz = bd.zFront - bd.zBack;
+  bd.lB = (lf - lb) / dz; bd.lA = lb - bd.lB * bd.zBack;
+  bd.rB = (rf - rb) / dz; bd.rA = rb - bd.rB * bd.zBack;
   bd.cz = (bd.zBack + bd.zFront) / 2;
   bd.cx = (bd.lA + bd.lB * bd.cz + bd.rA + bd.rB * bd.cz) / 2;
   tableMat.uniforms.uCenter.value.set(bd.cx, bd.cz);
@@ -1619,7 +1753,7 @@ function dropBear(flavor, delay = 0) {
     fn: () => {
       const z = rr(bd.zBack + 0.7, Math.min(bd.zFront - 0.7, bd.zBack + 2.6));
       const xl = bd.lA + bd.lB * z + 0.7, xr = bd.rA + bd.rB * z - 0.7;
-      const x = clamp(lerp(bd.cx - 1.6, bd.cx + 1.6, rand()), xl, xr);
+      const x = lerp(Math.max(xl, bd.cx - 1.6), Math.max(Math.min(xr, bd.cx + 1.6), xl), rand());
       spawnBear(flavor, [x, rr(5.6, 7.2), z], randomQuat(), [rr(-0.6, 0.6), -rr(1.5, 3.5), rr(-0.4, 0.4)],
         [rr(-4, 4), rr(-4, 4), rr(-4, 4)]);
     },
@@ -1631,14 +1765,22 @@ function pour(n = 6) {
 }
 
 function initialBears() {
-  const bd = world.bounds;
-  const z = clamp(bd.cz + 0.25, bd.zBack + 0.8, bd.zFront - 0.8);
-  const xl = bd.lA + bd.lB * z + 0.8, xr = bd.rA + bd.rB * z - 0.8;
-  const span = Math.min(xr - xl, 5.2), x0 = (xl + xr) / 2 - span / 2;
-  for (let k = 0; k < FLAVORS.length; k++) {
-    const x = x0 + span * (k / (FLAVORS.length - 1));
-    const zz = z + (k % 2 ? -0.35 : 0.1);
-    spawnBear(k, [x, REST_COM[1] + 0.35 + 0.1 * k, zz], yawQuat(rr(-0.35, 0.35) - (x - world.bounds.cx) * 0.06));
+  const bd = world.bounds, n = FLAVORS.length;
+  const z = clamp(bd.cz + (world.lineup ? 0.15 : 0.3), bd.zBack + 0.8, bd.zFront - 0.8), pad = world.lineup ? 0.8 : 0.55;
+  const xl = bd.lA + bd.lB * z + pad, xr = bd.rA + bd.rB * z - pad, mid = (xl + xr) / 2;
+  const place = (k, x, zz) => spawnBear(k, [x, REST_COM[1] + 0.35 + 0.1 * k, zz], yawQuat(rr(-0.35, 0.35) - (x - bd.cx) * 0.06));
+  if (world.lineup) {
+    // a line-up, gently staggered in depth
+    const span = Math.min(xr - xl, 5.2), x0 = mid - span / 2;
+    for (let k = 0; k < n; k++) place(k, x0 + span * (k / (n - 1)), z + (k % 2 ? -0.35 : 0.1));
+  } else {
+    // narrow stage: three at the back, two in front, in the gaps
+    const s = clamp((xr - xl) / 2, 0.62, 1.0);
+    const dzr = clamp((bd.zFront - bd.zBack - 1.6) / 2, 0.3, 0.5);
+    for (let k = 0; k < n; k++) {
+      const back = k % 2 === 0, j = back ? k / 2 - 1 : (k === 1 ? -0.5 : 0.5);
+      place(k, mid + j * s, z + (back ? -dzr : dzr));
+    }
   }
 }
 
@@ -1782,10 +1924,18 @@ function applyWobble() {
   world.damp = lerp(11, 1.5, w);
   world.bounceMul = lerp(0.75, 1.22, w);
   wobbleEl.style.setProperty('--p', `${v}%`);
-  wobbleOut.textContent = WOBBLE_WORDS[Math.min(WOBBLE_WORDS.length - 1, Math.floor(w * WOBBLE_WORDS.length))];
+  const word = WOBBLE_WORDS[Math.min(WOBBLE_WORDS.length - 1, Math.floor(w * WOBBLE_WORDS.length))];
+  if (wobbleOut.textContent !== word) wobbleOut.textContent = word;
+  wobbleEl.setAttribute('aria-valuetext', word);
   for (const b of world.bears) b.wake();
 }
 wobbleEl.addEventListener('input', applyWobble);
+// idle hopping is ambient motion: keep it off for people who ask the OS for reduced motion
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+if (!QS.has('hops')) {
+  world.hops = !reduceMotion.matches;
+  reduceMotion.addEventListener?.('change', e => { world.hops = !e.matches; });
+}
 applyWobble();
 document.getElementById('pour').addEventListener('click', () => pour(6));
 
